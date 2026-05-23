@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { AppShell } from '@/components/app-shell'
-import { mockTasks, mockUsers, getTaskTypeLabel, getStatusLabel, formatCurrency } from '@/lib/mock-data'
+import { Task, Page, User as UserType, getTaskTypeLabel, getStatusLabel, formatCurrency } from '@/lib/mock-data'
 import {
   Plus,
   Search,
@@ -35,23 +35,16 @@ import {
   Layers,
 } from 'lucide-react'
 
-// Mock page data for demonstration
-const mockPages = [
-  { id: 'p1', number: 1, imageUrl: '/pages/page1.jpg', status: 'in_progress' },
-  { id: 'p2', number: 2, imageUrl: '/pages/page2.jpg', status: 'pending' },
-  { id: 'p3', number: 3, imageUrl: '/pages/page3.jpg', status: 'approved' },
-  { id: 'p4', number: 4, imageUrl: '/pages/page4.jpg', status: 'assigned' },
-  { id: 'p5', number: 5, imageUrl: '/pages/page5.jpg', status: 'pending' },
-]
-
-const assistants = mockUsers.filter(u => u.role === 'assistant')
-
 export default function MangakaTasksPage() {
-  const [selectedPage, setSelectedPage] = useState<string | null>('p1')
+  const [pages] = useState<Page[]>([])
+  const [tasks] = useState<Task[]>([])
+  const [assistants] = useState<UserType[]>([])
+  const [selectedPage, setSelectedPage] = useState<string | null>(null)
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false)
   const [selectionMode, setSelectionMode] = useState(false)
 
-  const currentPageTasks = mockTasks.filter(t => t.pageId === selectedPage)
+  const currentPageTasks = tasks.filter(t => t.pageId === selectedPage)
+  const currentPage = pages.find(p => p.id === selectedPage)
 
   return (
     <AppShell>
@@ -88,44 +81,48 @@ export default function MangakaTasksPage() {
               <CardDescription>Chọn trang để xem và giao việc</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {mockPages.map((page) => {
-                const pageTasks = mockTasks.filter(t => t.pageId === page.id)
-                const completedTasks = pageTasks.filter(t => t.status === 'approved').length
-                
-                return (
-                  <button
-                    key={page.id}
-                    onClick={() => setSelectedPage(page.id)}
-                    className={`w-full flex items-center gap-3 rounded-lg p-3 text-left transition-colors ${
-                      selectedPage === page.id
-                        ? 'bg-primary/10 border border-primary'
-                        : 'bg-secondary/50 hover:bg-secondary border border-transparent'
-                    }`}
-                  >
-                    <div className="flex h-12 w-9 items-center justify-center rounded bg-muted text-xs">
-                      {page.number}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-foreground">Trang {page.number}</p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{pageTasks.length} công việc</span>
-                        {pageTasks.length > 0 && (
-                          <>
-                            <span>•</span>
-                            <span>{completedTasks}/{pageTasks.length} hoàn thành</span>
-                          </>
-                        )}
+              {pages.length === 0 ? (
+                <p className="text-center py-4 text-muted-foreground">Không có trang nào</p>
+              ) : (
+                pages.map((page) => {
+                  const pageTasks = tasks.filter(t => t.pageId === page.id)
+                  const completedTasks = pageTasks.filter(t => t.status === 'approved').length
+                  
+                  return (
+                    <button
+                      key={page.id}
+                      onClick={() => setSelectedPage(page.id)}
+                      className={`w-full flex items-center gap-3 rounded-lg p-3 text-left transition-colors ${
+                        selectedPage === page.id
+                          ? 'bg-primary/10 border border-primary'
+                          : 'bg-secondary/50 hover:bg-secondary border border-transparent'
+                      }`}
+                    >
+                      <div className="flex h-12 w-9 items-center justify-center rounded bg-muted text-xs">
+                        {page.pageNumber}
                       </div>
-                    </div>
-                    <Badge variant={
-                      page.status === 'approved' ? 'default' :
-                      page.status === 'in_progress' ? 'secondary' : 'outline'
-                    } className="text-xs">
-                      {getStatusLabel(page.status)}
-                    </Badge>
-                  </button>
-                )
-              })}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-foreground">Trang {page.pageNumber}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{pageTasks.length} công việc</span>
+                          {pageTasks.length > 0 && (
+                            <>
+                              <span>•</span>
+                              <span>{completedTasks}/{pageTasks.length} hoàn thành</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <Badge variant={
+                        page.status === 'approved' ? 'default' :
+                        page.status === 'in_progress' ? 'secondary' : 'outline'
+                      } className="text-xs">
+                        {getStatusLabel(page.status)}
+                      </Badge>
+                    </button>
+                  )
+                })
+              )}
             </CardContent>
           </Card>
 
@@ -135,7 +132,7 @@ export default function MangakaTasksPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">
-                    Trang {mockPages.find(p => p.id === selectedPage)?.number}
+                    {currentPage ? `Trang ${currentPage.pageNumber}` : 'Chọn một trang'}
                   </CardTitle>
                   <CardDescription>
                     {selectionMode 
@@ -162,23 +159,24 @@ export default function MangakaTasksPage() {
                   </div>
                 </div>
                 
-                {/* Example task regions */}
-                <div 
-                  className="absolute top-[10%] left-[5%] w-[90%] h-[25%] border-2 border-primary/50 bg-primary/10 rounded cursor-pointer hover:bg-primary/20 transition-colors"
-                  title="Vẽ nền thành phố"
-                >
-                  <div className="absolute -top-6 left-0 bg-primary text-primary-foreground text-xs px-2 py-1 rounded">
-                    Vẽ nền - Sato Emi
+                {/* Example task regions could be rendered here based on tasks */}
+                {currentPageTasks.map(task => task.region && (
+                  <div 
+                    key={task.id}
+                    className="absolute border-2 border-primary/50 bg-primary/10 rounded cursor-pointer hover:bg-primary/20 transition-colors"
+                    style={{
+                      top: `${task.region.y}%`,
+                      left: `${task.region.x}%`,
+                      width: `${task.region.width}%`,
+                      height: `${task.region.height}%`
+                    }}
+                    title={task.description}
+                  >
+                    <div className="absolute -top-6 left-0 bg-primary text-primary-foreground text-xs px-2 py-1 rounded">
+                      {getTaskTypeLabel(task.type)} - {task.assignedToName}
+                    </div>
                   </div>
-                </div>
-                <div 
-                  className="absolute top-[45%] left-[20%] w-[60%] h-[30%] border-2 border-accent/50 bg-accent/10 rounded cursor-pointer hover:bg-accent/20 transition-colors"
-                  title="Tô bóng nhân vật"
-                >
-                  <div className="absolute -top-6 left-0 bg-accent text-accent-foreground text-xs px-2 py-1 rounded">
-                    Tô bóng - Chưa giao
-                  </div>
-                </div>
+                ))}
 
                 {selectionMode && (
                   <div className="absolute inset-0 cursor-crosshair bg-primary/5" />
@@ -193,7 +191,7 @@ export default function MangakaTasksPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Công việc của trang {mockPages.find(p => p.id === selectedPage)?.number}</CardTitle>
+                <CardTitle>Công việc của trang {currentPage?.pageNumber || '...'}</CardTitle>
                 <CardDescription>Danh sách công việc đã giao và trạng thái</CardDescription>
               </div>
             </div>

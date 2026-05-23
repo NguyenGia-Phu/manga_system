@@ -1,11 +1,13 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { AppShell } from '@/components/app-shell'
-import { mockSeries, mockChapters, mockTasks, getStatusLabel } from '@/lib/mock-data'
+import { Series, Chapter, Task, getStatusLabel } from '@/lib/mock-data'
+import { useAppStore } from '@/lib/store'
 import {
   BookOpen,
   FileEdit,
@@ -21,14 +23,14 @@ import {
 import Link from 'next/link'
 
 export default function MangakaDashboard() {
-  const mySeries = mockSeries.filter(s => s.authorId === 'u1')
-  const activeChapters = mockChapters.filter(ch => ch.status !== 'published')
-  const pendingTasks = mockTasks.filter(t => t.status === 'submitted')
+  const mySeries = useAppStore((state) => state.mySeries)
+  const [activeChapters] = useState<Chapter[]>([])
+  const [pendingTasks] = useState<Task[]>([])
 
   const stats = [
     {
       label: 'Series đang chạy',
-      value: mySeries.filter(s => s.status === 'ongoing').length,
+      value: mySeries.filter(s => s.status.toLocaleLowerCase() === 'ongoing').length,
       icon: BookOpen,
       color: 'text-primary',
       bgColor: 'bg-primary/10',
@@ -49,12 +51,14 @@ export default function MangakaDashboard() {
     },
     {
       label: 'Xếp hạng cao nhất',
-      value: `#${Math.min(...mySeries.map(s => s.rank))}`,
+      value: 'N/A', // Changed due to removing rank from Series
       icon: TrendingUp,
       color: 'text-success',
       bgColor: 'bg-success/10',
     },
   ]
+
+  
 
   return (
     <AppShell>
@@ -120,26 +124,11 @@ export default function MangakaDashboard() {
                         {getStatusLabel(series.status)}
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{series.titleJp}</p>
+                    <p className="text-sm text-muted-foreground">{series.alternativeTitle}</p>
                     <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>Chương {series.currentChapter}</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1">
-                        {series.rank < series.previousRank ? (
-                          <TrendingUp className="h-3 w-3 text-success" />
-                        ) : series.rank > series.previousRank ? (
-                          <TrendingDown className="h-3 w-3 text-destructive" />
-                        ) : null}
-                        Hạng #{series.rank}
-                      </span>
+                      <span>Tác giả: {series.authorName}</span>
                     </div>
                   </div>
-                  {series.rank >= 15 && (
-                    <div className="flex items-center gap-1 text-destructive">
-                      <AlertTriangle className="h-4 w-4" />
-                      <span className="text-xs">Nguy cơ huỷ</span>
-                    </div>
-                  )}
                 </div>
               ))}
             </CardContent>
