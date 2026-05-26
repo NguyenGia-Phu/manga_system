@@ -3,20 +3,27 @@
 import { useEffect } from 'react'
 import { AppSidebar } from './app-sidebar'
 import { useAppStore } from '@/lib/store'
+import { graphqlRequest, isAuthenticated } from '@/lib/api'
+import { useRouter } from 'next/navigation'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
   const mySeries = useAppStore((state) => state.mySeries)
   const setMySeries = useAppStore((state) => state.setMySeries)
 
   useEffect(() => {
+    if (!isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+
     if (mySeries.length > 0) return;
 
     const loadMangaSeries = async () => {
-      localStorage.setItem("mangakaId", "4CFCCE27-EEDD-41F6-9F1E-00FB03EF866D");
       const mangakaIdFromStorage = localStorage.getItem('mangakaId')
       
       if (!mangakaIdFromStorage) {
-        console.error("Chưa đăng nhập hoặc chưa có mangakaId trong LocalStorage!")
+        console.warn("Chưa có mangakaId trong LocalStorage - có thể chưa phải Mangaka")
         return
       }
 
@@ -30,20 +37,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       `;
 
       try {
-        const response = await fetch('https://localhost:7242/graphql', { 
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            query: GRAPHQL_QUERY,
-            variables: {
-              MangakaId: mangakaIdFromStorage
-            }
-          })
-        })
+        const result = await graphqlRequest(GRAPHQL_QUERY, {
+          MangakaId: mangakaIdFromStorage
+        }, true)
 
-        const result = await response.json()
         console.log("🔍 KẾT QUẢ API TRẢ VỀ:", result)
         setMySeries(result.data?.mySeries || [])
 
@@ -66,4 +63,5 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   )
 }
+
 

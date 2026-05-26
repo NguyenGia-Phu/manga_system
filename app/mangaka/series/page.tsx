@@ -45,11 +45,122 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
+import { graphqlRequest } from '@/lib/api'
+
 export default function MangakaSeriesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const mySeries = useAppStore((state) => state.mySeries)
   const setMySeries = useAppStore((state) => state.setMySeries)
+
+  // Form states for creating a new series
+  const [newTitle, setNewTitle] = useState('')
+  const [newAlternativeTitle, setNewAlternativeTitle] = useState('')
+  const [newDescription, setNewDescription] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('create') === 'true') {
+        setIsCreateDialogOpen(true)
+      }
+    }
+
+    const storedUser = localStorage.getItem('currentUser')
+    if (storedUser) {
+      const user = JSON.parse(storedUser)
+      const fetchSeries = async () => {
+        const query = `
+          query GetMySeries($mangakaId: UUID!) {
+            getMySeries(mangakaId: $mangakaId) {
+              id
+              title
+              alternativeTitle
+              description
+              coverImageUrl
+              status
+              createdAt
+              updatedAt
+              authorName
+              authorId
+            }
+          }
+        `
+        try {
+          const res = await graphqlRequest<{ getMySeries: any[] }>(query, {
+            mangakaId: user.id
+          }, true)
+
+          let backendSeries: any[] = []
+          if (res.data?.getMySeries) {
+            backendSeries = res.data.getMySeries.map((s: any) => ({
+              ...s,
+              status: s.status.toLowerCase()
+            }))
+          }
+
+          const localSeriesStr = localStorage.getItem(`custom_series_${user.id}`)
+          const localSeries = localSeriesStr ? JSON.parse(localSeriesStr) : []
+          const combined = [...localSeries, ...backendSeries]
+
+          setMySeries(combined)
+        } catch (e) {
+          console.error('Error fetching series:', e)
+          const localSeriesStr = localStorage.getItem(`custom_series_${user.id}`)
+          const localSeries = localSeriesStr ? JSON.parse(localSeriesStr) : []
+          setMySeries(localSeries)
+        }
+      }
+      if (user.id) {
+        fetchSeries()
+      }
+    }
+  }, [setMySeries])
+
+  const handleCreateSeries = async () => {
+    if (!newTitle.trim()) return
+
+    setIsSubmitting(true)
+    try {
+      const storedUser = localStorage.getItem('currentUser')
+      const user = storedUser ? JSON.parse(storedUser) : { id: 'u1', username: 'Tanaka Yuki' }
+
+      const newSeriesObj = {
+        id: `s_${Date.now()}`,
+        title: newTitle,
+        alternativeTitle: newAlternativeTitle || null,
+        description: newDescription,
+        coverImageUrl: '/covers/default.jpg',
+        status: 'ongoing' as const, // Thiết lập trạng thái active lập tức cho Mangaka
+        createdAt: new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString().split('T')[0],
+        authorEmail: user.email || 'tanaka@studio.jp',
+        authorName: user.username || 'Tanaka Yuki',
+        authorId: user.id || 'u1',
+        tantouEditorId: null
+      }
+
+      // Lưu trữ vào LocalStorage để tồn tại lâu dài/không mất khi tải lại
+      const localSeriesStr = localStorage.getItem(`custom_series_${user.id}`)
+      const localSeries = localSeriesStr ? JSON.parse(localSeriesStr) : []
+      const updatedLocal = [newSeriesObj, ...localSeries]
+      localStorage.setItem(`custom_series_${user.id}`, JSON.stringify(updatedLocal))
+
+      // Cập nhật lên frontend State & Zustand
+      const updated = [newSeriesObj, ...mySeries]
+      setMySeries(updated)
+
+      setIsCreateDialogOpen(false)
+      setNewTitle('')
+      setNewAlternativeTitle('')
+      setNewDescription('')
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const filteredSeries = mySeries.filter(s =>
     s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -87,11 +198,23 @@ export default function MangakaSeriesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="title">Tên series (Tiếng Anh)</Label>
-                    <Input id="title" placeholder="VD: Blade of the Eternal" />
+                    <Input
+                      id="title"
+                      placeholder="VD: Blade of the Eternal"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      disabled={isSubmitting}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="alternativeTitle">Tên series (Tiếng Nhật)</Label>
-                    <Input id="alternativeTitle" placeholder="VD: 永遠の刃" />
+                    <Input
+                      id="alternativeTitle"
+                      placeholder="VD: 永遠の刃"
+                      value={newAlternativeTitle}
+                      onChange={(e) => setNewAlternativeTitle(e.target.value)}
+                      disabled={isSubmitting}
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -100,6 +223,9 @@ export default function MangakaSeriesPage() {
                     id="description"
                     placeholder="Mô tả ngắn gọn về nội dung và cốt truyện của series..."
                     rows={4}
+                    value={newDescription}
+                    onChange={(e) => setNewDescription(e.target.value)}
+                    disabled={isSubmitting}
                   />
                 </div>
                 {/* Lịch xuất bản và Thể loại đã bị xóa vì không có trong DB tạm thời */}
@@ -118,12 +244,12 @@ export default function MangakaSeriesPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+                <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)} disabled={isSubmitting}>
                   Huỷ
                 </Button>
-                <Button className="gap-2">
+                <Button className="gap-2" onClick={handleCreateSeries} disabled={isSubmitting || !newTitle.trim()}>
                   <Send className="h-4 w-4" />
-                  Nộp xét duyệt
+                  {isSubmitting ? 'Đang nộp...' : 'Nộp xét duyệt'}
                 </Button>
               </DialogFooter>
             </DialogContent>

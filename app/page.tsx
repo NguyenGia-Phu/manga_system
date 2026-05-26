@@ -3,12 +3,17 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
+import { isAuthenticated } from '@/lib/api'
 
 export default function HomePage() {
   const router = useRouter()
   const { currentRole } = useAppStore()
 
   useEffect(() => {
+    if (!isAuthenticated()) {
+      router.push('/login')
+      return
+    }
     router.push(`/${currentRole}`)
   }, [currentRole, router])
 
