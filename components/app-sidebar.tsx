@@ -2,9 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/lib/store'
 import { getRoleLabel } from '@/lib/mock-data'
+import { logout } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -32,6 +34,7 @@ import {
   FileCheck,
   PenTool,
   CheckSquare,
+  LogOut,
 } from 'lucide-react'
 
 const roleNavItems = {
@@ -65,8 +68,22 @@ const roleNavItems = {
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const { currentRole, currentUser, setCurrentRole } = useAppStore()
+  const { currentRole, currentUser, setCurrentRole, setCurrentUser } = useAppStore()
   const navItems = roleNavItems[currentRole]
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('currentUser')
+    if (storedUser) {
+      const user = JSON.parse(storedUser)
+      setCurrentUser({
+        id: user.id || 'u1',
+        name: user.username || user.email?.split('@')[0] || 'Mangaka',
+        avatar: '/avatars/default.jpg',
+        role: 'mangaka',
+        email: user.email || 'tanaka@studio.jp'
+      })
+    }
+  }, [setCurrentUser])
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-sidebar-border bg-sidebar">
@@ -83,8 +100,8 @@ export function AppSidebar() {
         <div className="border-b border-sidebar-border p-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 className="w-full justify-between text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               >
                 <div className="flex items-center gap-2">
@@ -163,13 +180,15 @@ export function AppSidebar() {
               <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground">
                 <Bell className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground">
-                <Settings className="h-4 w-4" />
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground" onClick={logout} title="Đăng xuất">
+                <LogOut className="h-4 w-4" />
               </Button>
             </div>
           </div>
         </div>
       </div>
     </aside>
+  )
+}
   )
 }

@@ -13,21 +13,16 @@ export interface User {
 export interface Series {
   id: string
   title: string
-  titleJp: string
-  author: string
-  authorId: string
-  genre: string[]
-  status: 'draft' | 'pending' | 'approved' | 'ongoing' | 'hiatus' | 'cancelled' | 'completed'
-  publishSchedule: 'weekly' | 'biweekly' | 'monthly'
-  currentChapter: number
-  coverImage: string
-  synopsis: string
-  rank: number
-  previousRank: number
-  votes: number
+  alternativeTitle: string | null
+  description: string
+  coverImageUrl: string | null
+  status: 'draft' | 'pending' | 'ongoing' | 'hiatus' | 'cancelled' | 'completed' // Removed approved, adjusted to common states
   createdAt: string
-  editorId: string
-  editorName: string
+  updatedAt: string
+  authorEmail: string | null
+  authorName: string
+  authorId: string
+  tantouEditorId: string | null
 }
 
 export interface Chapter {
@@ -118,97 +113,72 @@ export const mockSeries: Series[] = [
   {
     id: 's1',
     title: 'Blade of the Eternal',
-    titleJp: '永遠の刃',
-    author: 'Tanaka Yuki',
-    authorId: 'u1',
-    genre: ['Action', 'Fantasy'],
+    alternativeTitle: '永遠の刃',
+    description: 'A young samurai embarks on a journey to find the legendary blade that can cut through dimensions.',
+    coverImageUrl: '/covers/blade-eternal.jpg',
     status: 'ongoing',
-    publishSchedule: 'weekly',
-    currentChapter: 45,
-    coverImage: '/covers/blade-eternal.jpg',
-    synopsis: 'A young samurai embarks on a journey to find the legendary blade that can cut through dimensions.',
-    rank: 3,
-    previousRank: 5,
-    votes: 2847,
     createdAt: '2024-01-15',
-    editorId: 'u4',
-    editorName: 'Suzuki Hiro'
+    updatedAt: '2024-01-15',
+    authorEmail: 'tanaka@studio.jp',
+    authorName: 'Tanaka Yuki',
+    authorId: 'u1',
+    tantouEditorId: 'u4'
   },
   {
     id: 's2',
     title: 'Digital Hearts',
-    titleJp: 'デジタルハーツ',
-    author: 'Tanaka Yuki',
-    authorId: 'u1',
-    genre: ['Romance', 'Sci-Fi'],
+    alternativeTitle: 'デジタルハーツ',
+    description: 'In a world where emotions can be digitized, two programmers discover love in the code.',
+    coverImageUrl: '/covers/digital-hearts.jpg',
     status: 'ongoing',
-    publishSchedule: 'biweekly',
-    currentChapter: 28,
-    coverImage: '/covers/digital-hearts.jpg',
-    synopsis: 'In a world where emotions can be digitized, two programmers discover love in the code.',
-    rank: 12,
-    previousRank: 10,
-    votes: 1523,
     createdAt: '2024-03-20',
-    editorId: 'u4',
-    editorName: 'Suzuki Hiro'
+    updatedAt: '2024-03-20',
+    authorEmail: 'tanaka@studio.jp',
+    authorName: 'Tanaka Yuki',
+    authorId: 'u1',
+    tantouEditorId: 'u4'
   },
   {
     id: 's3',
     title: 'Shadow Academy',
-    titleJp: 'シャドウアカデミー',
-    author: 'Morita Kenji',
-    authorId: 'u6',
-    genre: ['Action', 'School'],
+    alternativeTitle: 'シャドウアカデミー',
+    description: 'A prestigious academy hides a dark secret - students are trained to become elite assassins.',
+    coverImageUrl: '/covers/shadow-academy.jpg',
     status: 'ongoing',
-    publishSchedule: 'weekly',
-    currentChapter: 67,
-    coverImage: '/covers/shadow-academy.jpg',
-    synopsis: 'A prestigious academy hides a dark secret - students are trained to become elite assassins.',
-    rank: 1,
-    previousRank: 1,
-    votes: 4521,
     createdAt: '2023-06-10',
-    editorId: 'u4',
-    editorName: 'Suzuki Hiro'
+    updatedAt: '2023-06-10',
+    authorEmail: 'morita@studio.jp',
+    authorName: 'Morita Kenji',
+    authorId: 'u6',
+    tantouEditorId: 'u4'
   },
   {
     id: 's4',
     title: 'Cooking Master Neo',
-    titleJp: '料理マスターネオ',
-    author: 'Hayashi Miku',
-    authorId: 'u7',
-    genre: ['Cooking', 'Comedy'],
+    alternativeTitle: '料理マスターネオ',
+    description: 'A young chef enters the world of competitive cooking to save his grandmother\'s restaurant.',
+    coverImageUrl: '/covers/cooking-master.jpg',
     status: 'ongoing',
-    publishSchedule: 'weekly',
-    currentChapter: 89,
-    coverImage: '/covers/cooking-master.jpg',
-    synopsis: 'A young chef enters the world of competitive cooking to save his grandmother\'s restaurant.',
-    rank: 2,
-    previousRank: 3,
-    votes: 3892,
     createdAt: '2022-11-05',
-    editorId: 'u4',
-    editorName: 'Suzuki Hiro'
+    updatedAt: '2022-11-05',
+    authorEmail: 'hayashi@studio.jp',
+    authorName: 'Hayashi Miku',
+    authorId: 'u7',
+    tantouEditorId: 'u4'
   },
   {
     id: 's5',
     title: 'Ghost Protocol',
-    titleJp: 'ゴーストプロトコル',
-    author: 'Kimura Sota',
-    authorId: 'u8',
-    genre: ['Thriller', 'Mystery'],
+    alternativeTitle: 'ゴーストプロトコル',
+    description: 'A detective who can see ghosts investigates cases that blur the line between life and death.',
+    coverImageUrl: '/covers/ghost-protocol.jpg',
     status: 'hiatus',
-    publishSchedule: 'monthly',
-    currentChapter: 34,
-    coverImage: '/covers/ghost-protocol.jpg',
-    synopsis: 'A detective who can see ghosts investigates cases that blur the line between life and death.',
-    rank: 18,
-    previousRank: 15,
-    votes: 892,
     createdAt: '2023-09-12',
-    editorId: 'u4',
-    editorName: 'Suzuki Hiro'
+    updatedAt: '2023-09-12',
+    authorEmail: 'kimura@studio.jp',
+    authorName: 'Kimura Sota',
+    authorId: 'u8',
+    tantouEditorId: 'u4'
   },
 ]
 

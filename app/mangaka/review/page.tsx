@@ -25,7 +25,7 @@ import {
   RotateCcw,
   Download
 } from "lucide-react"
-import { mockTasks, getTaskTypeLabel, formatCurrency } from "@/lib/mock-data"
+import { getTaskTypeLabel, formatCurrency, Task } from "@/lib/mock-data"
 
 interface Submission {
   id: string
@@ -40,46 +40,8 @@ interface Submission {
   feedback?: string
 }
 
-const mockSubmissions: Submission[] = [
-  {
-    id: 'sub1',
-    taskId: 't3',
-    pageNumber: 3,
-    taskType: 'screentone',
-    assistant: 'Sato Emi',
-    submittedAt: '2026-05-20 14:30',
-    originalImage: '/pages/ch46-p3-original.jpg',
-    resultImage: '/pages/ch46-p3-screentone.jpg',
-    status: 'pending',
-  },
-  {
-    id: 'sub2',
-    taskId: 't4',
-    pageNumber: 4,
-    taskType: 'effects',
-    assistant: 'Yamamoto Ken',
-    submittedAt: '2026-05-21 09:15',
-    originalImage: '/pages/ch46-p4-original.jpg',
-    resultImage: '/pages/ch46-p4-effects.jpg',
-    status: 'approved',
-    feedback: 'Perfect speed lines! Great work.'
-  },
-  {
-    id: 'sub3',
-    taskId: 't5',
-    pageNumber: 5,
-    taskType: 'background',
-    assistant: 'Sato Emi',
-    submittedAt: '2026-05-19 16:45',
-    originalImage: '/pages/ch46-p5-original.jpg',
-    resultImage: '/pages/ch46-p5-bg.jpg',
-    status: 'revision',
-    feedback: 'The perspective on the building needs adjustment. Please fix the vanishing point.'
-  },
-]
-
 export default function MangakaReviewPage() {
-  const [submissions, setSubmissions] = useState(mockSubmissions)
+  const [submissions, setSubmissions] = useState<Submission[]>([])
   const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null)
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
   const [feedback, setFeedback] = useState("")

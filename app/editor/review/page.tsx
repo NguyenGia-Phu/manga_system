@@ -83,8 +83,8 @@ export default function EditorReviewPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="icon"
                       disabled={currentPage === 1}
                       onClick={() => setCurrentPage(p => p - 1)}
@@ -94,8 +94,8 @@ export default function EditorReviewPage() {
                     <span className="text-sm text-foreground">
                       Trang {currentPage} / {totalPages}
                     </span>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="icon"
                       disabled={currentPage === totalPages}
                       onClick={() => setCurrentPage(p => p + 1)}
@@ -110,7 +110,7 @@ export default function EditorReviewPage() {
                     <Button variant="outline" size="icon">
                       <ZoomIn className="h-4 w-4" />
                     </Button>
-                    <Button 
+                    <Button
                       variant={annotationMode ? 'default' : 'outline'}
                       onClick={() => setAnnotationMode(!annotationMode)}
                       className="gap-2"
@@ -122,7 +122,7 @@ export default function EditorReviewPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div 
+                <div
                   className="relative aspect-[3/4] rounded-lg bg-muted overflow-hidden cursor-crosshair"
                   onClick={() => annotationMode && setIsAddAnnotationOpen(true)}
                 >
@@ -138,15 +138,14 @@ export default function EditorReviewPage() {
                   {annotations.map((anno) => (
                     <button
                       key={anno.id}
-                      className={`absolute w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-transform hover:scale-110 ${
-                        anno.resolved
-                          ? 'bg-success/80 text-success-foreground'
-                          : anno.type === 'dialogue'
+                      className={`absolute w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-transform hover:scale-110 ${anno.resolved
+                        ? 'bg-success/80 text-success-foreground'
+                        : anno.type === 'dialogue'
                           ? 'bg-primary/80 text-primary-foreground'
                           : anno.type === 'art'
-                          ? 'bg-warning/80 text-warning-foreground'
-                          : 'bg-accent/80 text-accent-foreground'
-                      }`}
+                            ? 'bg-warning/80 text-warning-foreground'
+                            : 'bg-accent/80 text-accent-foreground'
+                        }`}
                       style={{ left: `${anno.x}%`, top: `${anno.y}%` }}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -174,20 +173,19 @@ export default function EditorReviewPage() {
                 {annotations.map((anno) => (
                   <button
                     key={anno.id}
-                    className={`w-full text-left rounded-lg p-3 transition-colors ${
-                      selectedAnnotation?.id === anno.id
-                        ? 'bg-primary/10 border border-primary'
-                        : 'bg-secondary/50 hover:bg-secondary border border-transparent'
-                    }`}
+                    className={`w-full text-left rounded-lg p-3 transition-colors ${selectedAnnotation?.id === anno.id
+                      ? 'bg-primary/10 border border-primary'
+                      : 'bg-secondary/50 hover:bg-secondary border border-transparent'
+                      }`}
                     onClick={() => setSelectedAnnotation(anno)}
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <Badge variant={
                         anno.type === 'dialogue' ? 'default' :
-                        anno.type === 'art' ? 'secondary' : 'outline'
+                          anno.type === 'art' ? 'secondary' : 'outline'
                       } className="text-xs">
                         {anno.type === 'dialogue' ? 'Thoại' :
-                         anno.type === 'art' ? 'Hình vẽ' : 'Nhịp truyện'}
+                          anno.type === 'art' ? 'Hình vẽ' : 'Nhịp truyện'}
                       </Badge>
                       {anno.resolved && (
                         <CheckCircle2 className="h-3 w-3 text-success" />
@@ -197,8 +195,8 @@ export default function EditorReviewPage() {
                   </button>
                 ))}
 
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="w-full gap-2"
                   onClick={() => setIsAddAnnotationOpen(true)}
                 >
@@ -218,7 +216,7 @@ export default function EditorReviewPage() {
                     <p className="text-sm font-medium text-muted-foreground">Loại</p>
                     <Badge className="mt-1">
                       {selectedAnnotation.type === 'dialogue' ? 'Thoại' :
-                       selectedAnnotation.type === 'art' ? 'Hình vẽ' : 'Nhịp truyện'}
+                        selectedAnnotation.type === 'art' ? 'Hình vẽ' : 'Nhịp truyện'}
                     </Badge>
                   </div>
                   <div>
@@ -227,29 +225,29 @@ export default function EditorReviewPage() {
                   </div>
                   <div className="flex gap-2">
                     {!selectedAnnotation.resolved ? (
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         className="flex-1 gap-1"
                         onClick={() => {
-                          setAnnotations(prev => 
-                            prev.map(a => a.id === selectedAnnotation.id ? {...a, resolved: true} : a)
+                          setAnnotations(prev =>
+                            prev.map(a => a.id === selectedAnnotation.id ? { ...a, resolved: true } : a)
                           )
-                          setSelectedAnnotation({...selectedAnnotation, resolved: true})
+                          setSelectedAnnotation({ ...selectedAnnotation, resolved: true })
                         }}
                       >
                         <CheckCircle2 className="h-4 w-4" />
                         Đánh dấu đã xử lý
                       </Button>
                     ) : (
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        variant="outline"
+                        size="sm"
                         className="flex-1 gap-1"
                         onClick={() => {
-                          setAnnotations(prev => 
-                            prev.map(a => a.id === selectedAnnotation.id ? {...a, resolved: false} : a)
+                          setAnnotations(prev =>
+                            prev.map(a => a.id === selectedAnnotation.id ? { ...a, resolved: false } : a)
                           )
-                          setSelectedAnnotation({...selectedAnnotation, resolved: false})
+                          setSelectedAnnotation({ ...selectedAnnotation, resolved: false })
                         }}
                       >
                         Mở lại
@@ -288,7 +286,7 @@ export default function EditorReviewPage() {
               </div>
               <div className="space-y-2">
                 <Label>Nội dung ghi chú</Label>
-                <Textarea 
+                <Textarea
                   placeholder="Mô tả vấn đề hoặc yêu cầu chỉnh sửa..."
                   rows={4}
                 />

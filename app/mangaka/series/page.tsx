@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,7 +25,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { AppShell } from '@/components/app-shell'
-import { mockSeries, getStatusLabel } from '@/lib/mock-data'
+import { Series, getStatusLabel } from '@/lib/mock-data'
+import { useAppStore } from '@/lib/store'
 import {
   Plus,
   Search,
@@ -44,14 +45,126 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
+import { graphqlRequest } from '@/lib/api'
+
 export default function MangakaSeriesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const mySeries = mockSeries.filter(s => s.authorId === 'u1')
+  const mySeries = useAppStore((state) => state.mySeries)
+  const setMySeries = useAppStore((state) => state.setMySeries)
+
+  // Form states for creating a new series
+  const [newTitle, setNewTitle] = useState('')
+  const [newAlternativeTitle, setNewAlternativeTitle] = useState('')
+  const [newDescription, setNewDescription] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('create') === 'true') {
+        setIsCreateDialogOpen(true)
+      }
+    }
+
+    const storedUser = localStorage.getItem('currentUser')
+    if (storedUser) {
+      const user = JSON.parse(storedUser)
+      const fetchSeries = async () => {
+        const query = `
+          query GetMySeries($mangakaId: UUID!) {
+            getMySeries(mangakaId: $mangakaId) {
+              id
+              title
+              alternativeTitle
+              description
+              coverImageUrl
+              status
+              createdAt
+              updatedAt
+              authorName
+              authorId
+            }
+          }
+        `
+        try {
+          const res = await graphqlRequest<{ getMySeries: any[] }>(query, {
+            mangakaId: user.id
+          }, true)
+
+          let backendSeries: any[] = []
+          if (res.data?.getMySeries) {
+            backendSeries = res.data.getMySeries.map((s: any) => ({
+              ...s,
+              status: s.status.toLowerCase()
+            }))
+          }
+
+          const localSeriesStr = localStorage.getItem(`custom_series_${user.id}`)
+          const localSeries = localSeriesStr ? JSON.parse(localSeriesStr) : []
+          const combined = [...localSeries, ...backendSeries]
+
+          setMySeries(combined)
+        } catch (e) {
+          console.error('Error fetching series:', e)
+          const localSeriesStr = localStorage.getItem(`custom_series_${user.id}`)
+          const localSeries = localSeriesStr ? JSON.parse(localSeriesStr) : []
+          setMySeries(localSeries)
+        }
+      }
+      if (user.id) {
+        fetchSeries()
+      }
+    }
+  }, [setMySeries])
+
+  const handleCreateSeries = async () => {
+    if (!newTitle.trim()) return
+
+    setIsSubmitting(true)
+    try {
+      const storedUser = localStorage.getItem('currentUser')
+      const user = storedUser ? JSON.parse(storedUser) : { id: 'u1', username: 'Tanaka Yuki' }
+
+      const newSeriesObj = {
+        id: `s_${Date.now()}`,
+        title: newTitle,
+        alternativeTitle: newAlternativeTitle || null,
+        description: newDescription,
+        coverImageUrl: '/covers/default.jpg',
+        status: 'ongoing' as const, // Thiết lập trạng thái active lập tức cho Mangaka
+        createdAt: new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString().split('T')[0],
+        authorEmail: user.email || 'tanaka@studio.jp',
+        authorName: user.username || 'Tanaka Yuki',
+        authorId: user.id || 'u1',
+        tantouEditorId: null
+      }
+
+      // Lưu trữ vào LocalStorage để tồn tại lâu dài/không mất khi tải lại
+      const localSeriesStr = localStorage.getItem(`custom_series_${user.id}`)
+      const localSeries = localSeriesStr ? JSON.parse(localSeriesStr) : []
+      const updatedLocal = [newSeriesObj, ...localSeries]
+      localStorage.setItem(`custom_series_${user.id}`, JSON.stringify(updatedLocal))
+
+      // Cập nhật lên frontend State & Zustand
+      const updated = [newSeriesObj, ...mySeries]
+      setMySeries(updated)
+
+      setIsCreateDialogOpen(false)
+      setNewTitle('')
+      setNewAlternativeTitle('')
+      setNewDescription('')
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const filteredSeries = mySeries.filter(s =>
     s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.titleJp.includes(searchQuery)
+    (s.alternativeTitle && s.alternativeTitle.includes(searchQuery))
   )
 
   const ongoingSeries = filteredSeries.filter(s => s.status === 'ongoing')
@@ -85,54 +198,39 @@ export default function MangakaSeriesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="title">Tên series (Tiếng Anh)</Label>
-                    <Input id="title" placeholder="VD: Blade of the Eternal" />
+                    <Input
+                      id="title"
+                      placeholder="VD: Blade of the Eternal"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      disabled={isSubmitting}
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="titleJp">Tên series (Tiếng Nhật)</Label>
-                    <Input id="titleJp" placeholder="VD: 永遠の刃" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="genre">Thể loại</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Chọn thể loại" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="action">Action</SelectItem>
-                        <SelectItem value="romance">Romance</SelectItem>
-                        <SelectItem value="comedy">Comedy</SelectItem>
-                        <SelectItem value="fantasy">Fantasy</SelectItem>
-                        <SelectItem value="sci-fi">Sci-Fi</SelectItem>
-                        <SelectItem value="horror">Horror</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="schedule">Lịch xuất bản</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Chọn lịch xuất bản" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="weekly">Hàng tuần</SelectItem>
-                        <SelectItem value="biweekly">2 tuần/lần</SelectItem>
-                        <SelectItem value="monthly">Hàng tháng</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="alternativeTitle">Tên series (Tiếng Nhật)</Label>
+                    <Input
+                      id="alternativeTitle"
+                      placeholder="VD: 永遠の刃"
+                      value={newAlternativeTitle}
+                      onChange={(e) => setNewAlternativeTitle(e.target.value)}
+                      disabled={isSubmitting}
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="synopsis">Tóm tắt nội dung</Label>
+                  <Label htmlFor="description">Tóm tắt nội dung / Mô tả</Label>
                   <Textarea
-                    id="synopsis"
+                    id="description"
                     placeholder="Mô tả ngắn gọn về nội dung và cốt truyện của series..."
                     rows={4}
+                    value={newDescription}
+                    onChange={(e) => setNewDescription(e.target.value)}
+                    disabled={isSubmitting}
                   />
                 </div>
+                {/* Lịch xuất bản và Thể loại đã bị xóa vì không có trong DB tạm thời */}
                 <div className="space-y-2">
-                  <Label>Bản thảo sơ bộ</Label>
+                  <Label>Ảnh bìa (Cover Image)</Label>
                   <div className="flex items-center justify-center rounded-lg border-2 border-dashed border-border p-8">
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground">
@@ -146,12 +244,12 @@ export default function MangakaSeriesPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+                <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)} disabled={isSubmitting}>
                   Huỷ
                 </Button>
-                <Button className="gap-2">
+                <Button className="gap-2" onClick={handleCreateSeries} disabled={isSubmitting || !newTitle.trim()}>
                   <Send className="h-4 w-4" />
-                  Nộp xét duyệt
+                  {isSubmitting ? 'Đang nộp...' : 'Nộp xét duyệt'}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -240,14 +338,16 @@ export default function MangakaSeriesPage() {
   )
 }
 
-function SeriesCard({ series }: { series: typeof mockSeries[0] }) {
-  const rankChange = series.previousRank - series.rank
-
+function SeriesCard({ series }: { series: Series }) {
   return (
     <Card className="bg-card overflow-hidden">
       <div className="flex">
         <div className="flex h-full w-32 flex-shrink-0 items-center justify-center bg-muted">
-          <span className="text-xs text-muted-foreground">Cover Image</span>
+          {series.coverImageUrl ? (
+            <img src={series.coverImageUrl} alt="Cover" className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-xs text-muted-foreground">No Cover</span>
+          )}
         </div>
         <div className="flex-1 p-4">
           <div className="flex items-start justify-between">
@@ -258,7 +358,7 @@ function SeriesCard({ series }: { series: typeof mockSeries[0] }) {
                   {getStatusLabel(series.status)}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground">{series.titleJp}</p>
+              <p className="text-sm text-muted-foreground">{series.alternativeTitle}</p>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -283,49 +383,24 @@ function SeriesCard({ series }: { series: typeof mockSeries[0] }) {
             </DropdownMenu>
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-1">
-            {series.genre.map((g) => (
-              <Badge key={g} variant="outline" className="text-xs">
-                {g}
-              </Badge>
-            ))}
+          <div className="mt-3 text-sm text-muted-foreground line-clamp-2">
+            {series.description}
           </div>
 
-          <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+          <div className="mt-3 grid grid-cols-2 gap-4 text-sm border-t pt-3">
             <div>
-              <p className="text-muted-foreground">Chương</p>
-              <p className="font-medium text-foreground">{series.currentChapter}</p>
+              <p className="text-muted-foreground">Ngày tạo</p>
+              <p className="font-medium text-foreground">{new Date(series.createdAt).toLocaleDateString('vi-VN')}</p>
             </div>
             <div>
-              <p className="text-muted-foreground">Xếp hạng</p>
-              <div className="flex items-center gap-1">
-                <span className="font-medium text-foreground">#{series.rank}</span>
-                {rankChange > 0 && (
-                  <span className="flex items-center text-xs text-success">
-                    <TrendingUp className="h-3 w-3" />
-                    {rankChange}
-                  </span>
-                )}
-                {rankChange < 0 && (
-                  <span className="flex items-center text-xs text-destructive">
-                    <TrendingDown className="h-3 w-3" />
-                    {Math.abs(rankChange)}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Bình chọn</p>
-              <p className="font-medium text-foreground">{series.votes.toLocaleString()}</p>
+              <p className="text-muted-foreground">Tác giả</p>
+              <p className="font-medium text-foreground">{series.authorName}</p>
             </div>
           </div>
 
           <div className="mt-3 flex gap-2">
             <Button size="sm" className="flex-1">
-              Quản lý chương
-            </Button>
-            <Button size="sm" variant="outline">
-              Xem thống kê
+              Quản lý
             </Button>
           </div>
         </div>
@@ -333,3 +408,4 @@ function SeriesCard({ series }: { series: typeof mockSeries[0] }) {
     </Card>
   )
 }
+

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AppShell } from '@/components/app-shell'
-import { mockChapters, mockSeries, getStatusLabel } from '@/lib/mock-data'
+import { Series, Chapter, getStatusLabel } from '@/lib/mock-data'
 import {
   Plus,
   Clock,
@@ -35,11 +35,12 @@ import Link from 'next/link'
 
 export default function MangakaChaptersPage() {
   const [selectedSeries, setSelectedSeries] = useState<string>('all')
-  const mySeries = mockSeries.filter(s => s.authorId === 'u1')
+  const [mySeries] = useState<Series[]>([])
+  const [chapters] = useState<Chapter[]>([])
 
   const filteredChapters = selectedSeries === 'all'
-    ? mockChapters
-    : mockChapters.filter(ch => ch.seriesId === selectedSeries)
+    ? chapters
+    : chapters.filter(ch => ch.seriesId === selectedSeries)
 
   const inProgressChapters = filteredChapters.filter(ch => 
     ch.status === 'draft' || ch.status === 'in_progress'
@@ -151,7 +152,7 @@ export default function MangakaChaptersPage() {
   )
 }
 
-function ChapterCard({ chapter }: { chapter: typeof mockChapters[0] }) {
+function ChapterCard({ chapter }: { chapter: Chapter }) {
   const deadline = new Date(chapter.deadline)
   const daysLeft = Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
   const isOverdue = daysLeft < 0

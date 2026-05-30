@@ -1,11 +1,14 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { AppShell } from '@/components/app-shell'
-import { mockSeries, mockChapters, mockTasks, getStatusLabel } from '@/lib/mock-data'
+import { Series, Chapter, Task, getStatusLabel } from '@/lib/mock-data'
+import { useAppStore } from '@/lib/store'
+import { graphqlRequest } from '@/lib/api'
 import {
   BookOpen,
   FileEdit,
@@ -21,14 +24,72 @@ import {
 import Link from 'next/link'
 
 export default function MangakaDashboard() {
-  const mySeries = mockSeries.filter(s => s.authorId === 'u1')
-  const activeChapters = mockChapters.filter(ch => ch.status !== 'published')
-  const pendingTasks = mockTasks.filter(t => t.status === 'submitted')
+  const [mySeries, setMySeries] = useState<Series[]>([])
+  const [userName, setUserName] = useState('Mangaka')
+  const [activeChapters] = useState<Chapter[]>([])
+  const [pendingTasks] = useState<Task[]>([])
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('currentUser')
+    if (storedUser) {
+      const user = JSON.parse(storedUser)
+      setUserName(user.username || user.email || 'Mangaka')
+
+      const fetchSeries = async () => {
+        const query = `
+          query GetMySeries($mangakaId: UUID!) {
+            getMySeries(mangakaId: $mangakaId) {
+              id
+              title
+              alternativeTitle
+              description
+              coverImageUrl
+              status
+              createdAt
+              updatedAt
+              authorName
+              authorId
+            }
+          }
+        `
+        try {
+          const res = await graphqlRequest<{ getMySeries: any[] }>(query, {
+            mangakaId: user.id
+          }, true)
+
+          let backendSeries: any[] = []
+          if (res.data?.getMySeries) {
+            backendSeries = res.data.getMySeries.map((s: any) => ({
+              ...s,
+              status: s.status.toLowerCase()
+            }))
+          }
+
+          const localSeriesStr = localStorage.getItem(`custom_series_${user.id}`)
+          const localSeries = localSeriesStr ? JSON.parse(localSeriesStr) : []
+          const combined = [...localSeries, ...backendSeries]
+
+          setMySeries(combined)
+          useAppStore.getState().setMySeries(combined)
+        } catch (e) {
+          console.error('Error fetching series:', e)
+          // Fallback to local storage if API fails or is empty
+          const localSeriesStr = localStorage.getItem(`custom_series_${user.id}`)
+          const localSeries = localSeriesStr ? JSON.parse(localSeriesStr) : []
+          setMySeries(localSeries)
+          useAppStore.getState().setMySeries(localSeries)
+        }
+      }
+      if (user.id) {
+        fetchSeries()
+      }
+    }
+  }, [])
 
   const stats = [
     {
       label: 'Series đang chạy',
-      value: mySeries.filter(s => s.status === 'ongoing').length,
+      value: mySeries.filter(s => s.status.toLocaleLowerCase() === 'ongoing').length,
       icon: BookOpen,
       color: 'text-primary',
       bgColor: 'bg-primary/10',
@@ -49,7 +110,7 @@ export default function MangakaDashboard() {
     },
     {
       label: 'Xếp hạng cao nhất',
-      value: `#${Math.min(...mySeries.map(s => s.rank))}`,
+      value: 'N/A', // Changed due to removing rank from Series
       icon: TrendingUp,
       color: 'text-success',
       bgColor: 'bg-success/10',
@@ -62,13 +123,15 @@ export default function MangakaDashboard() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Xin chào, Tanaka Yuki</h1>
+            <h1 className="text-2xl font-bold text-foreground">Xin chào, {userName}</h1>
             <p className="text-muted-foreground">Đây là tổng quan về các series và công việc của bạn</p>
           </div>
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            Tạo series mới
-          </Button>
+          <Link href="/mangaka/series?create=true">
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Tạo series mới
+            </Button>
+          </Link>
         </div>
 
         {/* Stats Grid */}
@@ -120,26 +183,11 @@ export default function MangakaDashboard() {
                         {getStatusLabel(series.status)}
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{series.titleJp}</p>
+                    <p className="text-sm text-muted-foreground">{series.alternativeTitle}</p>
                     <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>Chương {series.currentChapter}</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1">
-                        {series.rank < series.previousRank ? (
-                          <TrendingUp className="h-3 w-3 text-success" />
-                        ) : series.rank > series.previousRank ? (
-                          <TrendingDown className="h-3 w-3 text-destructive" />
-                        ) : null}
-                        Hạng #{series.rank}
-                      </span>
+                      <span>Tác giả: {series.authorName}</span>
                     </div>
                   </div>
-                  {series.rank >= 15 && (
-                    <div className="flex items-center gap-1 text-destructive">
-                      <AlertTriangle className="h-4 w-4" />
-                      <span className="text-xs">Nguy cơ huỷ</span>
-                    </div>
-                  )}
                 </div>
               ))}
             </CardContent>
@@ -163,7 +211,7 @@ export default function MangakaDashboard() {
                 const progress = chapter.status === 'review' ? 80 : chapter.status === 'in_progress' ? 45 : 20
                 const deadline = new Date(chapter.deadline)
                 const daysLeft = Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                
+
                 return (
                   <div
                     key={chapter.id}
