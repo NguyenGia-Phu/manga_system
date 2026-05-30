@@ -68,6 +68,13 @@ export async function graphqlRequest<T = any>(
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('accessToken');
+        window.location.href = '/login';
+      }
+      throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    }
     const errText = await response.text().catch(() => '')
     console.error('GraphQL Error Response:', errText)
     throw new Error(`HTTP Error: ${response.status} ${response.statusText} - ${errText}`)
@@ -108,6 +115,13 @@ export async function restRequest<T = any>(
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('accessToken');
+        window.location.href = '/login';
+      }
+      throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    }
     const errorText = await response.text()
     throw new Error(`HTTP Error: ${response.status} - ${errorText}`)
   }

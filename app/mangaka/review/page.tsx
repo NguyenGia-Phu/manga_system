@@ -1,37 +1,56 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AppShell } from "@/components/app-shell"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { 
   CheckCircle2, 
   XCircle, 
-  MessageSquare,
   Eye,
   Clock,
   User,
   Layers,
-  ChevronLeft,
-  ChevronRight,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
-  Download
+  RotateCcw
 } from "lucide-react"
-import { getTaskTypeLabel, formatCurrency, Task } from "@/lib/mock-data"
+import { getAccessToken, graphqlRequest, restRequest } from "@/lib/api"
+import { toast } from "sonner"
+
+interface AssistantDto {
+  id: string
+  username: string
+  email: string
+}
+
+interface TaskDto {
+  id: string
+  title: string
+  description: string
+  status: string
+  dueDate: string | null
+  assignedUserName: string | null
+  region: { pageId: string } | null
+  pageImageUrl: string | null
+  resourceUrl: string | null
+  resultFileUrl: string | null
+  resultNote: string | null
+  completedAt: string | null
+  createdAt: string
+}
 
 interface Submission {
   id: string
   taskId: string
-  pageNumber: number
-  taskType: string
+  pageId: string | null
+  pageLabel: string
+  taskTitle: string
   assistant: string
   submittedAt: string
   originalImage: string
@@ -48,40 +67,232 @@ export default function MangakaReviewPage() {
   const [viewMode, setViewMode] = useState<'original' | 'result' | 'compare'>('result')
   const [zoom, setZoom] = useState(100)
 
-  const pendingSubmissions = submissions.filter(s => s.status === 'pending')
-  const reviewedSubmissions = submissions.filter(s => s.status !== 'pending')
+  const pendingSubmissions = useMemo(() => submissions.filter(s => s.status === 'pending'), [submissions])
+  const reviewedSubmissions = useMemo(() => submissions.filter(s => s.status !== 'pending'), [submissions])
 
-  const handleApprove = (submissionId: string) => {
-    setSubmissions(submissions.map(s => 
-      s.id === submissionId 
-        ? { ...s, status: 'approved' as const, feedback: feedback || 'Approved' }
-        : s
-    ))
-    setReviewDialogOpen(false)
-    setFeedback("")
-    setSelectedSubmission(null)
+  const mapStatus = (status: string): Submission['status'] => {
+    if (status === 'Review') return 'pending'
+    if (status === 'NeedsRevision') return 'revision'
+    if (status === 'Done') return 'approved'
+    return 'pending'
   }
 
-  const handleRequestRevision = (submissionId: string) => {
+  const fetchSubmissions = async () => {
+    try {
+      const assistantsQuery = `
+        query GetMyAssistants {
+          myAssistants {
+            id
+            username
+            email
+          }
+        }
+      `
+      const assistantsRes = await graphqlRequest<{ myAssistants: AssistantDto[] }>(assistantsQuery, {}, true)
+      if (assistantsRes.errors) throw new Error(assistantsRes.errors[0].message)
+      const assistants = assistantsRes.data?.myAssistants || []
+
+      const tasksQuery = `
+        query GetTasksByUser($userId: UUID!) {
+          tasksByUser(userId: $userId) {
+            id
+            title
+            description
+            status
+            dueDate
+            assignedUserName
+            region { pageId }
+            pageImageUrl
+            resourceUrl
+            resultFileUrl
+            resultNote
+            completedAt
+            createdAt
+          }
+        }
+      `
+
+      const allTasks: TaskDto[] = []
+      // Fetch tasks for all assistants in parallel instead of sequential
+      const tasksResults = await Promise.all(
+        assistants.map(assistant =>
+          graphqlRequest<{ tasksByUser: TaskDto[] }>(
+            tasksQuery,
+            { userId: assistant.id },
+            true
+          ).then(res => {
+            if (res.errors) throw new Error(res.errors[0].message)
+            return res.data?.tasksByUser || []
+          }).catch(() => [] as TaskDto[])
+        )
+      )
+      for (const tasks of tasksResults) {
+        allTasks.push(...tasks)
+      }
+
+      const uniqueTasks = Array.from(new Map(allTasks.map(t => [t.id, t])).values())
+      const filtered = uniqueTasks.filter(t => t.status === 'Review' || t.status === 'Done' || t.status === 'NeedsRevision')
+
+      const mapped: Submission[] = filtered.map((task) => ({
+        id: task.id,
+        taskId: task.id,
+        pageId: task.region?.pageId || null,
+        pageLabel: task.region?.pageId ? `Page ${task.region.pageId.slice(0, 8)}` : 'Page N/A',
+        taskTitle: task.title,
+        assistant: task.assignedUserName || 'Assistant',
+        submittedAt: task.completedAt || task.createdAt,
+        originalImage: task.pageImageUrl || task.resourceUrl || '',
+        resultImage: task.resultFileUrl || '',
+        status: mapStatus(task.status),
+        feedback: task.resultNote || '',
+      }))
+
+      setSubmissions(mapped)
+    } catch (error: any) {
+      console.error('Error fetching submissions:', error)
+      toast.error('Lỗi nạp danh sách review: ' + (error?.message || 'Unknown error'))
+      setSubmissions([])
+    }
+  }
+
+  useEffect(() => {
+    fetchSubmissions()
+  }, [])
+
+  const fetchPageInfo = async (pageId: string) => {
+    const query = `
+      query GetPageById($id: UUID!) {
+        pageById(id: $id) {
+          id
+          chapterId
+          pageNumber
+        }
+      }
+    `
+    const res = await graphqlRequest<{ pageById: { id: string; chapterId: string; pageNumber: number } }>(
+      query,
+      { id: pageId },
+      true
+    )
+    if (res.errors) throw new Error(res.errors[0].message)
+    return res.data?.pageById || null
+  }
+
+  const handleApprove = async (submissionId: string) => {
+    try {
+      const submission = submissions.find(s => s.id === submissionId)
+      if (!submission?.resultImage || !submission.pageId) {
+        toast.error('Thiếu file kết quả hoặc trang cần ghi đè.')
+        return
+      }
+
+      const pageInfo = await fetchPageInfo(submission.pageId)
+      if (!pageInfo) {
+        toast.error('Không tìm thấy thông tin trang.')
+        return
+      }
+
+      const token = getAccessToken()
+      const headers: Record<string, string> = {}
+      if (token && (submission.resultImage.startsWith('/') || submission.resultImage.includes('localhost') || submission.resultImage.includes('127.0.0.1'))) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
+      const fileRes = await fetch(submission.resultImage, Object.keys(headers).length > 0 ? { headers } : undefined)
+      if (!fileRes.ok) throw new Error('Không thể tải file kết quả.')
+      const blob = await fileRes.blob()
+      let ext = '.png'
+      if (blob.type === 'image/jpeg' || blob.type === 'image/jpg') {
+        ext = '.jpg'
+      } else if (blob.type === 'image/webp') {
+        ext = '.webp'
+      }
+      const fileName = `page_${pageInfo.pageNumber}_task_${submissionId}${ext}`
+      const file = new File([blob], fileName, { type: blob.type || 'image/png' })
+
+      const formData = new FormData()
+      formData.append('ChapterId', pageInfo.chapterId)
+      formData.append('PageNumber', pageInfo.pageNumber.toString())
+      formData.append('File', file)
+
+      await restRequest('/Upload/page', {
+        method: 'POST',
+        body: formData,
+        isFormData: true,
+        requireAuth: true,
+      })
+
+      const mutation = `
+        mutation UpdateTaskStatus($taskId: UUID!, $input: UpdateTaskStatusRequestInput!) {
+          updateTaskStatus(taskId: $taskId, input: $input) {
+            id
+            status
+            resultNote
+          }
+        }
+      `
+      const res = await graphqlRequest<any>(
+        mutation,
+        {
+          taskId: submissionId,
+          input: { newStatus: 'DONE', resultNote: feedback.trim() || null },
+        },
+        true
+      )
+      if (res.errors) throw new Error(res.errors[0].message)
+
+      setReviewDialogOpen(false)
+      setFeedback("")
+      setSelectedSubmission(null)
+      await fetchSubmissions()
+    } catch (error: any) {
+      console.error('Approve failed:', error)
+      toast.error('Không thể duyệt: ' + (error?.message || 'Unknown error'))
+    }
+  }
+
+  const handleRequestRevision = async (submissionId: string) => {
     if (!feedback.trim()) return
-    setSubmissions(submissions.map(s => 
-      s.id === submissionId 
-        ? { ...s, status: 'revision' as const, feedback }
-        : s
-    ))
-    setReviewDialogOpen(false)
-    setFeedback("")
-    setSelectedSubmission(null)
+    try {
+      const mutation = `
+        mutation UpdateTaskStatus($taskId: UUID!, $input: UpdateTaskStatusRequestInput!) {
+          updateTaskStatus(taskId: $taskId, input: $input) {
+            id
+            status
+            resultNote
+          }
+        }
+      `
+      const res = await graphqlRequest<any>(
+        mutation,
+        {
+          taskId: submissionId,
+          input: { newStatus: 'IN_PROGRESS', resultNote: feedback.trim() },
+        },
+        true
+      )
+      if (res.errors) throw new Error(res.errors[0].message)
+
+      setReviewDialogOpen(false)
+      setFeedback("")
+      setSelectedSubmission(null)
+      await fetchSubmissions()
+    } catch (error: any) {
+      console.error('Request revision failed:', error)
+      toast.error('Không thể yêu cầu sửa: ' + (error?.message || 'Unknown error'))
+    }
   }
 
   const openReview = (submission: Submission) => {
     setSelectedSubmission(submission)
     setFeedback(submission.feedback || "")
+    setViewMode('result')
+    setZoom(100)
     setReviewDialogOpen(true)
   }
 
   return (
-    <AppShell role="mangaka">
+    <AppShell>
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Review Submissions</h1>
@@ -144,10 +355,18 @@ export default function MangakaReviewPage() {
                   <Card key={submission.id} className="overflow-hidden">
                     <div className="flex">
                       {/* Preview */}
-                      <div className="w-40 h-48 bg-muted flex items-center justify-center border-r border-border shrink-0">
-                        <div className="text-center text-muted-foreground">
-                          <Layers className="h-8 w-8 mx-auto mb-2" />
-                          <p className="text-xs">Page {submission.pageNumber}</p>
+                      <div className="w-40 h-48 bg-muted flex items-center justify-center border-r border-border shrink-0 relative overflow-hidden">
+                        {submission.resultImage ? (
+                          <img src={submission.resultImage} alt="Preview" className="w-full h-full object-cover" />
+                        ) : submission.originalImage ? (
+                          <img src={submission.originalImage} alt="Preview" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="text-center text-muted-foreground">
+                            <Layers className="h-8 w-8 mx-auto mb-2" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm p-1 text-center border-t border-border">
+                          <p className="text-xs font-semibold">{submission.pageLabel}</p>
                         </div>
                       </div>
                       
@@ -155,13 +374,13 @@ export default function MangakaReviewPage() {
                       <div className="flex-1 p-4">
                         <div className="flex items-start justify-between mb-3">
                           <div>
-                            <h3 className="font-semibold text-lg">Page {submission.pageNumber} - {getTaskTypeLabel(submission.taskType as any)}</h3>
+                            <h3 className="font-semibold text-lg">{submission.pageLabel} - {submission.taskTitle}</h3>
                             <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
                               <User className="h-3 w-3" />
                               {submission.assistant}
                               <span className="text-muted-foreground/50">|</span>
                               <Clock className="h-3 w-3" />
-                              {submission.submittedAt}
+                              {new Date(submission.submittedAt).toLocaleString('vi-VN')}
                             </p>
                           </div>
                           <Badge variant="secondary" className="bg-warning/10 text-warning border-warning/20">
@@ -173,10 +392,6 @@ export default function MangakaReviewPage() {
                           <Button onClick={() => openReview(submission)}>
                             <Eye className="h-4 w-4 mr-2" />
                             Review Submission
-                          </Button>
-                          <Button variant="outline">
-                            <MessageSquare className="h-4 w-4 mr-2" />
-                            Message Assistant
                           </Button>
                         </div>
                       </div>
@@ -199,17 +414,25 @@ export default function MangakaReviewPage() {
               {reviewedSubmissions.map((submission) => (
                 <Card key={submission.id} className="overflow-hidden">
                   <div className="flex">
-                    <div className="w-40 h-40 bg-muted flex items-center justify-center border-r border-border shrink-0">
-                      <div className="text-center text-muted-foreground">
-                        <Layers className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-xs">Page {submission.pageNumber}</p>
+                    <div className="w-40 h-40 bg-muted flex items-center justify-center border-r border-border shrink-0 relative overflow-hidden">
+                      {submission.resultImage ? (
+                        <img src={submission.resultImage} alt="Preview" className="w-full h-full object-cover" />
+                      ) : submission.originalImage ? (
+                        <img src={submission.originalImage} alt="Preview" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="text-center text-muted-foreground">
+                          <Layers className="h-8 w-8 mx-auto mb-2" />
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm p-1 text-center border-t border-border">
+                        <p className="text-xs font-semibold">{submission.pageLabel}</p>
                       </div>
                     </div>
                     
                     <div className="flex-1 p-4">
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <h3 className="font-medium">Page {submission.pageNumber} - {getTaskTypeLabel(submission.taskType as any)}</h3>
+                          <h3 className="font-medium">{submission.pageLabel} - {submission.taskTitle}</h3>
                           <p className="text-sm text-muted-foreground">{submission.assistant}</p>
                         </div>
                         <Badge 
@@ -242,21 +465,20 @@ export default function MangakaReviewPage() {
           </TabsContent>
         </Tabs>
 
-        {/* Review Dialog */}
         <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
-          <DialogContent className="max-w-5xl max-h-[90vh]">
+          <DialogContent className="max-w-[95vw] w-[95vw] sm:max-w-[95vw] max-h-[95vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>
-                Review: Page {selectedSubmission?.pageNumber} - {selectedSubmission && getTaskTypeLabel(selectedSubmission.taskType as any)}
+                Review: {selectedSubmission?.pageLabel} - {selectedSubmission?.taskTitle}
               </DialogTitle>
               <DialogDescription>
-                Submitted by {selectedSubmission?.assistant} on {selectedSubmission?.submittedAt}
+                Submitted by {selectedSubmission?.assistant} on {selectedSubmission && new Date(selectedSubmission.submittedAt).toLocaleString('vi-VN')}
               </DialogDescription>
             </DialogHeader>
             
-            <div className="grid grid-cols-3 gap-4">
+            <div className="flex gap-6 flex-1 min-h-0">
               {/* Image Viewer */}
-              <div className="col-span-2 space-y-4">
+              <div className="flex-1 space-y-4 min-w-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Button 
@@ -298,45 +520,79 @@ export default function MangakaReviewPage() {
                 <div className="border border-border rounded-lg bg-muted overflow-hidden">
                   {viewMode === 'compare' ? (
                     <div className="grid grid-cols-2 gap-px bg-border">
-                      <div className="bg-muted h-80 flex items-center justify-center">
-                        <div className="text-center text-muted-foreground">
-                          <p className="text-xs mb-2">Original</p>
-                          <Layers className="h-16 w-16 mx-auto opacity-50" />
-                        </div>
+                      <div className="bg-muted h-[68vh] flex items-center justify-center overflow-hidden">
+                        {selectedSubmission?.originalImage ? (
+                          <img
+                            src={selectedSubmission.originalImage}
+                            alt="Original"
+                            className="h-full w-full object-contain"
+                            style={{ transform: `scale(${zoom / 100})` }}
+                          />
+                        ) : (
+                          <div className="text-center text-muted-foreground">
+                            <p className="text-xs mb-2">Original</p>
+                            <Layers className="h-16 w-16 mx-auto opacity-50" />
+                          </div>
+                        )}
                       </div>
-                      <div className="bg-muted h-80 flex items-center justify-center">
-                        <div className="text-center text-muted-foreground">
-                          <p className="text-xs mb-2">Result</p>
-                          <Layers className="h-16 w-16 mx-auto opacity-50" />
-                        </div>
+                      <div className="bg-muted h-[68vh] flex items-center justify-center overflow-hidden">
+                        {selectedSubmission?.resultImage ? (
+                          <img
+                            src={selectedSubmission.resultImage}
+                            alt="Result"
+                            className="h-full w-full object-contain"
+                            style={{ transform: `scale(${zoom / 100})` }}
+                          />
+                        ) : (
+                          <div className="text-center text-muted-foreground">
+                            <p className="text-xs mb-2">Result</p>
+                            <Layers className="h-16 w-16 mx-auto opacity-50" />
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
-                    <div className="h-80 flex items-center justify-center">
-                      <div className="text-center text-muted-foreground">
-                        <Layers className="h-16 w-16 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">{viewMode === 'original' ? 'Original Image' : 'Result Image'}</p>
-                        <p className="text-xs mt-1">Page {selectedSubmission?.pageNumber}</p>
-                      </div>
+                    <div className="h-[68vh] flex items-center justify-center overflow-hidden">
+                      {viewMode === 'original' && selectedSubmission?.originalImage ? (
+                        <img
+                          src={selectedSubmission.originalImage}
+                          alt="Original"
+                          className="h-full w-full object-contain"
+                          style={{ transform: `scale(${zoom / 100})` }}
+                        />
+                      ) : viewMode === 'result' && selectedSubmission?.resultImage ? (
+                        <img
+                          src={selectedSubmission.resultImage}
+                          alt="Result"
+                          className="h-full w-full object-contain"
+                          style={{ transform: `scale(${zoom / 100})` }}
+                        />
+                      ) : (
+                        <div className="text-center text-muted-foreground">
+                          <Layers className="h-16 w-16 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">{viewMode === 'original' ? 'Original Image' : 'Result Image'}</p>
+                          <p className="text-xs mt-1">{selectedSubmission?.pageLabel}</p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
               
               {/* Feedback Panel */}
-              <div className="space-y-4">
+              <div className="w-[350px] shrink-0 space-y-4 overflow-y-auto">
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm">Task Details</CardTitle>
                   </CardHeader>
                   <CardContent className="text-sm space-y-2">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Type</span>
-                      <span>{selectedSubmission && getTaskTypeLabel(selectedSubmission.taskType as any)}</span>
+                      <span className="text-muted-foreground">Task</span>
+                      <span>{selectedSubmission?.taskTitle}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Page</span>
-                      <span>{selectedSubmission?.pageNumber}</span>
+                      <span>{selectedSubmission?.pageLabel}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Assistant</span>
@@ -381,10 +637,6 @@ export default function MangakaReviewPage() {
                   </div>
                 )}
                 
-                <Button variant="outline" className="w-full">
-                  <Download className="h-4 w-4 mr-2" />
-                  Download Files
-                </Button>
               </div>
             </div>
           </DialogContent>

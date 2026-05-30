@@ -1,27 +1,97 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { AppShell } from '@/components/app-shell'
-import { mockSeries, mockChapters, getStatusLabel } from '@/lib/mock-data'
+import { graphqlRequest } from '@/lib/api'
 import {
   FileCheck,
   Users,
-  Clock,
-  AlertTriangle,
   ArrowRight,
   BookOpen,
-  TrendingUp,
-  TrendingDown,
 } from 'lucide-react'
 import Link from 'next/link'
 
+type SeriesSummary = {
+  id: string
+  title: string
+  alternativeTitle?: string | null
+  status: string
+  authorName: string
+}
+
+type PendingReview = {
+  id: string
+  seriesTitle: string
+  number: number
+  title: string
+  deadline: string
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Ban nhap',
+  pending: 'Cho duyet',
+  approved: 'Da duyet',
+  ongoing: 'Dang chay',
+  hiatus: 'Tam ngung',
+  cancelled: 'Da huy',
+  completed: 'Hoan thanh',
+}
+
+function getStatusLabel(status: string): string {
+  return STATUS_LABELS[status.toLowerCase()] || status
+}
+
 export default function EditorDashboard() {
-  const managedSeries = mockSeries.filter(s => s.editorId === 'u4')
-  const pendingReviews = mockChapters.filter(ch => ch.status === 'review')
-  const atRiskSeries = managedSeries.filter(s => s.rank >= 15)
+  const [userName, setUserName] = useState('Editor')
+  const [managedSeries, setManagedSeries] = useState<SeriesSummary[]>([])
+  const pendingReviews: PendingReview[] = []
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('currentUser')
+    if (!storedUser) return
+
+    const user = JSON.parse(storedUser)
+    setUserName(user.username || user.email || 'Editor')
+
+    if (!user.id) return
+
+    const fetchSeries = async () => {
+      const query = `
+        query GetMySeries($mangakaId: UUID!) {
+          mySeries(mangakaId: $mangakaId) {
+            id
+            title
+            alternativeTitle
+            status
+            authorName
+          }
+        }
+      `
+
+      try {
+        const res = await graphqlRequest<{ mySeries: SeriesSummary[] }>(
+          query,
+          { mangakaId: user.id },
+          true
+        )
+
+        const series = (res.data?.mySeries || []).map((s) => ({
+          ...s,
+          status: s.status.toLowerCase(),
+        }))
+
+        setManagedSeries(series)
+      } catch (error) {
+        console.error('Error fetching series:', error)
+        setManagedSeries([])
+      }
+    }
+
+    fetchSeries()
+  }, [])
 
   const stats = [
     {
@@ -38,20 +108,6 @@ export default function EditorDashboard() {
       color: 'text-warning',
       bgColor: 'bg-warning/10',
     },
-    {
-      label: 'Series nguy cơ',
-      value: atRiskSeries.length,
-      icon: AlertTriangle,
-      color: 'text-destructive',
-      bgColor: 'bg-destructive/10',
-    },
-    {
-      label: 'Deadline tuần này',
-      value: 3,
-      icon: Clock,
-      color: 'text-accent',
-      bgColor: 'bg-accent/10',
-    },
   ]
 
   return (
@@ -59,7 +115,7 @@ export default function EditorDashboard() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Xin chào, Suzuki Hiro</h1>
+          <h1 className="text-2xl font-bold text-foreground">Xin chao, {userName}</h1>
           <p className="text-muted-foreground">Tổng quan về các series và công việc biên tập</p>
         </div>
 
@@ -153,85 +209,30 @@ export default function EditorDashboard() {
               </Link>
             </CardHeader>
             <CardContent className="space-y-4">
-              {managedSeries.slice(0, 3).map((series) => {
-                const progress = Math.floor(Math.random() * 40) + 50 // Mock progress
-
-                return (
+              {managedSeries.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <Users className="h-12 w-12 text-muted-foreground/50" />
+                  <p className="mt-2 text-muted-foreground">Chua co du lieu studio</p>
+                </div>
+              ) : (
+                managedSeries.slice(0, 3).map((series) => (
                   <div key={series.id} className="rounded-lg border border-border bg-secondary/30 p-4">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between">
                       <div>
                         <h3 className="font-semibold text-foreground">{series.title}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Chương {series.currentChapter + 1} - Tanaka Yuki Studio
-                        </p>
+                        <p className="text-sm text-muted-foreground">Tac gia: {series.authorName}</p>
                       </div>
-                      <Badge variant={progress >= 80 ? 'default' : progress >= 50 ? 'secondary' : 'outline'}>
-                        {progress}%
+                      <Badge variant={series.status === 'ongoing' ? 'default' : 'secondary'}>
+                        {getStatusLabel(series.status)}
                       </Badge>
                     </div>
-                    <Progress value={progress} className="h-2" />
-                    <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                      <span>15/20 trang hoàn thành</span>
-                      <span>Deadline: 28/05</span>
-                    </div>
                   </div>
-                )
-              })}
+                ))
+              )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Series at Risk */}
-        {atRiskSeries.length > 0 && (
-          <Card className="bg-card border-destructive/50">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-                <CardTitle>Series có nguy cơ bị huỷ</CardTitle>
-              </div>
-              <CardDescription>Các series cần được bảo vệ trước hội đồng</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {atRiskSeries.map((series) => {
-                  const rankChange = series.previousRank - series.rank
-
-                  return (
-                    <div
-                      key={series.id}
-                      className="flex items-center justify-between rounded-lg bg-destructive/5 p-4"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/10 text-destructive font-bold">
-                          #{series.rank}
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-foreground">{series.title}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            Tác giả: {series.author} • {series.votes.toLocaleString()} phiếu
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          {rankChange < 0 && (
-                            <span className="flex items-center gap-1 text-destructive">
-                              <TrendingDown className="h-4 w-4" />
-                              {Math.abs(rankChange)} hạng
-                            </span>
-                          )}
-                        </div>
-                        <Button variant="outline" size="sm">
-                          Chuẩn bị hồ sơ
-                        </Button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </AppShell>
   )

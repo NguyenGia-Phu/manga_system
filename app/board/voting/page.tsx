@@ -97,7 +97,7 @@ export default function BoardVotingPage() {
   const decidedProposals = proposals.filter(p => p.status !== "pending")
 
   return (
-    <AppShell role="board">
+    <AppShell>
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Voting & Decisions</h1>

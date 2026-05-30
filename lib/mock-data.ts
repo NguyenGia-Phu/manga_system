@@ -1,6 +1,6 @@
 // Mock data and types for the Manga Production Management System
 
-export type UserRole = 'mangaka' | 'assistant' | 'editor' | 'board'
+export type UserRole = 'mangaka' | 'assistant' | 'editor' | 'board' | 'admin'
 
 export interface User {
   id: string
@@ -23,6 +23,9 @@ export interface Series {
   authorName: string
   authorId: string
   tantouEditorId: string | null
+  rank?: number
+  previousRank?: number
+  votes?: number
 }
 
 export interface Chapter {
@@ -122,7 +125,10 @@ export const mockSeries: Series[] = [
     authorEmail: 'tanaka@studio.jp',
     authorName: 'Tanaka Yuki',
     authorId: 'u1',
-    tantouEditorId: 'u4'
+    tantouEditorId: 'u4',
+    rank: 1,
+    previousRank: 2,
+    votes: 15420
   },
   {
     id: 's2',
@@ -136,7 +142,10 @@ export const mockSeries: Series[] = [
     authorEmail: 'tanaka@studio.jp',
     authorName: 'Tanaka Yuki',
     authorId: 'u1',
-    tantouEditorId: 'u4'
+    tantouEditorId: 'u4',
+    rank: 3,
+    previousRank: 3,
+    votes: 12100
   },
   {
     id: 's3',
@@ -150,7 +159,10 @@ export const mockSeries: Series[] = [
     authorEmail: 'morita@studio.jp',
     authorName: 'Morita Kenji',
     authorId: 'u6',
-    tantouEditorId: 'u4'
+    tantouEditorId: 'u4',
+    rank: 2,
+    previousRank: 1,
+    votes: 14200
   },
   {
     id: 's4',
@@ -164,7 +176,10 @@ export const mockSeries: Series[] = [
     authorEmail: 'hayashi@studio.jp',
     authorName: 'Hayashi Miku',
     authorId: 'u7',
-    tantouEditorId: 'u4'
+    tantouEditorId: 'u4',
+    rank: 5,
+    previousRank: 6,
+    votes: 9800
   },
   {
     id: 's5',
@@ -178,7 +193,10 @@ export const mockSeries: Series[] = [
     authorEmail: 'kimura@studio.jp',
     authorName: 'Kimura Sota',
     authorId: 'u8',
-    tantouEditorId: 'u4'
+    tantouEditorId: 'u4',
+    rank: 16,
+    previousRank: 15,
+    votes: 1200
   },
 ]
 
@@ -446,6 +464,7 @@ export function getRoleLabel(role: UserRole): string {
     assistant: 'Trợ lý',
     editor: 'Biên tập viên',
     board: 'Hội đồng biên tập',
+    admin: 'Admin',
   }
   return labels[role]
 }
