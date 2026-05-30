@@ -17,12 +17,14 @@ import {
   FileCheck,
 } from 'lucide-react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 
 type SubmissionItem = {
   id: string
   title: string
   status: string
   seriesTitle: string
+  mangakaName?: string | null
   submittedAt?: string | null
   resolvedAt?: string | null
 }
@@ -56,6 +58,7 @@ export default function EditorManuscriptsPage() {
             title
             status
             seriesTitle
+            mangakaName
             submittedAt
             resolvedAt
           }
@@ -79,10 +82,12 @@ export default function EditorManuscriptsPage() {
     fetchSubmissions()
   }, [])
 
-  const filteredSubmissions = submissions.filter((submission) =>
-    submission.seriesTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    submission.title.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredSubmissions = submissions.filter((submission) => {
+    const q = searchQuery.toLowerCase()
+    return submission.seriesTitle.toLowerCase().includes(q) ||
+      submission.title.toLowerCase().includes(q) ||
+      (submission.mangakaName || '').toLowerCase().includes(q)
+  })
 
   const pendingStatuses = new Set(['submitted', 'undertantoureview'])
   const approvedStatuses = new Set(['approved'])
@@ -105,7 +110,7 @@ export default function EditorManuscriptsPage() {
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Tìm kiếm bản thảo..."
+            placeholder="Tìm theo tên tác phẩm, tiêu đề, hoặc tác giả..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"

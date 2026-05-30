@@ -22,7 +22,8 @@ import {
   ArrowLeft,
   BookOpen,
   FileCheck,
-  AlertTriangle
+  AlertTriangle,
+  ArrowUpRight
 } from 'lucide-react'
 import {
   Dialog,
@@ -136,8 +137,8 @@ function EditorReviewContent() {
   // Workflow Dialogs
   const [returnDialogOpen, setReturnDialogOpen] = useState(false)
   const [returnFeedback, setReturnFeedback] = useState('')
-  const [approveDialogOpen, setApproveDialogOpen] = useState(false)
-  const [approveFeedback, setApproveFeedback] = useState('')
+  const [forwardDialogOpen, setForwardDialogOpen] = useState(false)
+  const [forwardComment, setForwardComment] = useState('')
   const [isSubmittingAction, setIsSubmittingAction] = useState(false)
 
   const [zoom, setZoom] = useState(100)
@@ -409,13 +410,13 @@ function EditorReviewContent() {
     }
   }
 
-  const handleApproveSubmission = async () => {
+  const handleForwardToBoard = async () => {
     if (!submission) return
     setIsSubmittingAction(true)
     try {
       const mutation = `
-        mutation ResolveSubmission($submissionId: UUID!, $approved: Boolean!, $feedback: String!) {
-          resolveSubmission(submissionId: $submissionId, approved: $approved, feedback: $feedback) {
+        mutation ForwardToBoard($submissionId: UUID!, $comment: String!) {
+          forwardToBoard(submissionId: $submissionId, comment: $comment) {
             id
             status
           }
@@ -425,19 +426,18 @@ function EditorReviewContent() {
         mutation,
         {
           submissionId: submission.id,
-          approved: true,
-          feedback: approveFeedback.trim() || 'Bản vẽ đạt yêu cầu chất lượng xuất bản.'
+          comment: forwardComment.trim() || 'Bản thảo đạt yêu cầu, đề nghị Hội đồng Biên tập xem xét xuất bản.'
         },
         true
       )
       if (res.errors) throw new Error(res.errors[0].message)
 
-      toast.success('Bản thảo chương đã được phê duyệt thành công!')
-      setApproveDialogOpen(false)
+      toast.success('Đã chuyển tiếp bản thảo lên Hội đồng Biên tập thành công!')
+      setForwardDialogOpen(false)
       router.push('/editor/manuscripts')
     } catch (err: any) {
       console.error(err)
-      toast.error('Lỗi phê duyệt bản thảo: ' + err.message)
+      toast.error('Lỗi chuyển tiếp bản thảo: ' + err.message)
     } finally {
       setIsSubmittingAction(false)
     }
@@ -514,12 +514,12 @@ function EditorReviewContent() {
               <Button 
                 className="rounded-xl font-bold bg-success text-success-foreground gap-2 hover:bg-success/90"
                 onClick={() => {
-                  setApproveFeedback('')
-                  setApproveDialogOpen(true)
+                  setForwardComment('')
+                  setForwardDialogOpen(true)
                 }}
               >
-                <CheckCircle2 className="h-4 w-4" />
-                Phê duyệt bản vẽ
+                <ArrowUpRight className="h-4 w-4" />
+                Gửi lên Hội đồng Biên tập
               </Button>
             </>
           )}
@@ -807,35 +807,36 @@ function EditorReviewContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
+      <Dialog open={forwardDialogOpen} onOpenChange={setForwardDialogOpen}>
         <DialogContent className="max-w-md rounded-2xl bg-card border-border p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold flex items-center gap-2 text-success">
-              <CheckCircle2 className="h-5 w-5" />
-              Phê Duyệt Bản Thảo
+              <ArrowUpRight className="h-5 w-5" />
+              Gửi Lên Hội Đồng Biên Tập
             </DialogTitle>
             <DialogDescription>
-              Phê duyệt hoàn tất bản thảo chương này. Trạng thái bản thảo sẽ đổi thành Đã phê duyệt.
+              Chuyển tiếp bản thảo lên Hội đồng Biên tập để tổ chức bỏ phiếu xuất bản chính thức.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2 my-4">
-            <Label htmlFor="app-comment" className="text-sm font-semibold">Nhận xét phê duyệt</Label>
+            <Label htmlFor="fwd-comment" className="text-sm font-semibold">Lời đề xuất / phê bình</Label>
             <Textarea
-              id="app-comment"
-              placeholder="Ví dụ: Bản vẽ hoàn hảo, phối cảnh đẹp và lời thoại rất mượt mà. Đã duyệt xuất bản!"
-              value={approveFeedback}
-              onChange={(e) => setApproveFeedback(e.target.value)}
+              id="fwd-comment"
+              placeholder="Ví dụ: Bản vẽ hoàn hảo, phối cảnh đẹp và lời thoại rất mượt mà. Đề nghị Hội đồng xem xét xuất bản!"
+              value={forwardComment}
+              onChange={(e) => setForwardComment(e.target.value)}
               className="min-h-[120px] rounded-xl border-border bg-background resize-none"
             />
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" className="rounded-xl" onClick={() => setApproveDialogOpen(false)} disabled={isSubmittingAction}>
+            <Button variant="outline" className="rounded-xl" onClick={() => setForwardDialogOpen(false)} disabled={isSubmittingAction}>
               Hủy
             </Button>
-            <Button className="rounded-xl bg-success text-success-foreground font-semibold" onClick={handleApproveSubmission} disabled={isSubmittingAction}>
-              {isSubmittingAction ? 'Đang duyệt...' : 'Xác nhận phê duyệt'}
+            <Button className="rounded-xl bg-success text-success-foreground font-semibold gap-1.5" onClick={handleForwardToBoard} disabled={isSubmittingAction}>
+              <ArrowUpRight className="h-4 w-4" />
+              {isSubmittingAction ? 'Đang gửi...' : 'Xác nhận gửi lên Hội đồng'}
             </Button>
           </DialogFooter>
         </DialogContent>
