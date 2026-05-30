@@ -1,13 +1,17 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useState, useEffect } from 'react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AppShell } from '@/components/app-shell'
-import { Series, Chapter, getStatusLabel } from '@/lib/mock-data'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Plus,
   Clock,
@@ -17,6 +21,10 @@ import {
   MoreHorizontal,
   Send,
   AlertTriangle,
+  MessageSquare,
+  BookOpen,
+  ArrowRight,
+  UserCheck
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -24,248 +32,792 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import Link from 'next/link'
+import { graphqlRequest } from '@/lib/api'
+import { toast } from 'sonner'
+
+interface Series {
+  id: string
+  title: string
+  status: string
+}
+
+interface ChapterDto {
+  id: string
+  title: string
+  chapterNumber: number
+  isPublished: boolean
+  createdAt: string
+  seriesId: string
+  status?: string
+  manuscriptId?: string
+  submissionId?: string
+  feedback?: string
+  version?: number
+  annotatedPagesText?: string
+}
+
+interface SubmissionManuscript {
+  id: string
+  name: string
+  status: string
+  version: number
+  isCurrentVersion: boolean
+  chapterId: string
+  createdAt: string
+}
+
+interface SubmissionTransition {
+  id: string
+  fromStatus: string
+  toStatus: string
+  comment: string | null
+  occurredAt: string
+}
+
+interface Submission {
+  id: string
+  title: string
+  note: string
+  status: string
+  seriesId: string
+  submittedAt: string
+  manuscripts: SubmissionManuscript[]
+  transitions: SubmissionTransition[]
+}
+
+function getStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    draft: 'Bản nháp',
+    submitted: 'Chờ duyệt',
+    Submitted: 'Chờ duyệt',
+    UnderTantouReview: 'Tantou đang thẩm định',
+    ForwardedToBoard: 'Chờ hội đồng duyệt',
+    ReturnedForRevision: 'Cần chỉnh sửa lại',
+    Approved: 'Đã phê duyệt',
+    published: 'Đã xuất bản',
+    Published: 'Đã xuất bản'
+  }
+  return labels[status] || status
+}
 
 export default function MangakaChaptersPage() {
-  const [selectedSeries, setSelectedSeries] = useState<string>('all')
-  const [mySeries] = useState<Series[]>([])
-  const [chapters] = useState<Chapter[]>([])
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [mySeries, setMySeries] = useState<Series[]>([])
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string>('')
+  const [chapters, setChapters] = useState<ChapterDto[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const filteredChapters = selectedSeries === 'all'
-    ? chapters
-    : chapters.filter(ch => ch.seriesId === selectedSeries)
+  // Dialog states
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [submitDialogOpen, setSubmitDialogOpen] = useState(false)
+  const [submittingNote, setSubmittingNote] = useState('')
+  const [targetChapter, setTargetChapter] = useState<ChapterDto | null>(null)
 
-  const inProgressChapters = filteredChapters.filter(ch => 
-    ch.status === 'draft' || ch.status === 'in_progress'
-  )
-  const reviewChapters = filteredChapters.filter(ch => ch.status === 'review')
-  const publishedChapters = filteredChapters.filter(ch => ch.status === 'published' || ch.status === 'approved')
+  // Create form states
+  const [newTitle, setNewTitle] = useState('')
+  const [newChapterNumber, setNewChapterNumber] = useState<string>('')
+  const [isCreating, setIsCreating] = useState(false)
+  const [isSubmittingWorkflow, setIsSubmittingWorkflow] = useState(false)
+
+  // 1. Load User Profile
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('currentUser')
+      if (stored) {
+        try {
+          const user = JSON.parse(stored)
+          setCurrentUser(user)
+        } catch (e) {
+          console.error('Lỗi parse currentUser:', e)
+        }
+      }
+    }
+  }, [])
+
+  // 2. Fetch Series list once User is loaded
+  useEffect(() => {
+    if (!currentUser) return
+    const fetchSeries = async () => {
+      try {
+        const query = `
+          query GetMySeries($mangakaId: UUID!) {
+            mySeries(mangakaId: $mangakaId) {
+              id
+              title
+              status
+            }
+          }
+        `
+        const res = await graphqlRequest<{ mySeries: Series[] }>(query, { mangakaId: currentUser.id }, true)
+        if (res.errors) throw new Error(res.errors[0].message)
+        const list = res.data?.mySeries || []
+        setMySeries(list)
+        if (list.length > 0) {
+          setSelectedSeriesId(list[0].id)
+        } else {
+          setLoading(false)
+        }
+      } catch (err: any) {
+        console.error(err)
+        toast.error('Lỗi tải danh sách bộ truyện: ' + err.message)
+        setLoading(false)
+      }
+    }
+    fetchSeries()
+  }, [currentUser])
+
+  // 3. Fetch Chapters & Submissions when Selected Series changes
+  const fetchData = async () => {
+    if (!selectedSeriesId || !currentUser) return
+    setLoading(true)
+    try {
+      // Query Chapters
+      const chaptersQuery = `
+        query GetChaptersBySeries($seriesId: UUID!) {
+          chaptersBySeries(seriesId: $seriesId) {
+            id
+            title
+            chapterNumber
+            isPublished
+            createdAt
+            seriesId
+          }
+        }
+      `
+      const chaptersRes = await graphqlRequest<{ chaptersBySeries: ChapterDto[] }>(
+        chaptersQuery,
+        { seriesId: selectedSeriesId },
+        true
+      )
+      if (chaptersRes.errors) throw new Error(chaptersRes.errors[0].message)
+      const rawChapters = chaptersRes.data?.chaptersBySeries || []
+
+      // Query Submissions
+      const submissionsQuery = `
+        query GetMySubmissions($mangakaId: UUID!) {
+          mySubmissions(mangakaId: $mangakaId) {
+            id
+            title
+            note
+            status
+            seriesId
+            submittedAt
+            manuscripts {
+              id
+              name
+              status
+              version
+              isCurrentVersion
+              chapterId
+              createdAt
+            }
+            transitions {
+              id
+              fromStatus
+              toStatus
+              comment
+              occurredAt
+            }
+          }
+        }
+      `
+      const submissionsRes = await graphqlRequest<{ mySubmissions: Submission[] }>(
+        submissionsQuery,
+        { mangakaId: currentUser.id },
+        true
+      )
+      const submissionsList = submissionsRes.data?.mySubmissions || []
+
+      // Map workflow status dynamically
+      const mappedChapters = await Promise.all(rawChapters.map(async (ch) => {
+        const mapped: ChapterDto = { ...ch, status: 'draft', version: 1 }
+
+        // Find active submission linked to this chapter
+        const matchedSub = submissionsList.find((sub) =>
+          sub.manuscripts.some((m) => m.chapterId === ch.id)
+        )
+
+        if (matchedSub) {
+          const currentMs = matchedSub.manuscripts.find((m) => m.chapterId === ch.id && m.isCurrentVersion)
+            || matchedSub.manuscripts.find((m) => m.chapterId === ch.id)
+
+          mapped.status = matchedSub.status
+          mapped.submissionId = matchedSub.id
+          if (currentMs) {
+            mapped.manuscriptId = currentMs.id
+            mapped.version = currentMs.version
+          }
+
+          // If returned for revision, extract feedback comment from transitions
+          if (matchedSub.status === 'ReturnedForRevision') {
+            const revisionTransition = [...matchedSub.transitions]
+              .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+              .find((t) => t.toStatus === 'ReturnedForRevision')
+            mapped.feedback = revisionTransition?.comment || 'Yêu cầu chỉnh sửa lại bản thảo.'
+
+            // Lấy thông tin các trang có ghi chú chưa được giải quyết (status === 'Open') - PARALLEL
+            try {
+              const pagesQuery = `
+                query GetPagesByChapter($chapterId: UUID!) {
+                  pagesByChapter(chapterId: $chapterId) {
+                    id
+                    pageNumber
+                  }
+                }
+              `
+              const pagesRes = await graphqlRequest<{ pagesByChapter: any[] }>(pagesQuery, { chapterId: ch.id }, true)
+              const pages = pagesRes.data?.pagesByChapter || []
+              
+              const annoQuery = `
+                query GetAnnotationsByPage($pageId: UUID!) {
+                  annotationsByPage(pageId: $pageId) {
+                    status
+                  }
+                }
+              `
+              // Fetch all page annotations in parallel instead of sequential
+              const annoResults = await Promise.all(
+                pages.map(page =>
+                  graphqlRequest<{ annotationsByPage: any[] }>(annoQuery, { pageId: page.id }, true)
+                    .then(res => ({
+                      pageNumber: page.pageNumber,
+                      hasOpen: (res.data?.annotationsByPage || []).some(a => a.status === 'Open')
+                    }))
+                    .catch(() => ({ pageNumber: page.pageNumber, hasOpen: false }))
+                )
+              )
+              
+              const annotatedPagesList = annoResults
+                .filter(r => r.hasOpen)
+                .map(r => r.pageNumber)
+                .sort((a, b) => a - b)
+
+              if (annotatedPagesList.length > 0) {
+                mapped.annotatedPagesText = `Cần sửa đổi ở: Trang ` + annotatedPagesList.join(', Trang ')
+              }
+            } catch (err) {
+              console.error('Error fetching annotations for chapter pages:', err)
+            }
+          }
+        }
+
+        if (ch.isPublished) {
+          mapped.status = 'published'
+        }
+
+        return mapped
+      }))
+
+      setChapters(mappedChapters)
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Lỗi nạp dữ liệu chương: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [selectedSeriesId])
+
+  // 4. Handle Create Chapter
+  const handleCreateChapter = async () => {
+    if (!newTitle.trim()) {
+      toast.warning('Vui lòng nhập tiêu đề chương.')
+      return
+    }
+    const num = parseFloat(newChapterNumber)
+    if (isNaN(num) || num <= 0) {
+      toast.warning('Vui lòng nhập số thứ tự chương hợp lệ.')
+      return
+    }
+
+    setIsCreating(true)
+    try {
+      const mutation = `
+        mutation CreateChapter($input: CreateChapterRequestInput!) {
+          createChapter(input: $input) {
+            id
+            title
+            chapterNumber
+          }
+        }
+      `
+      const res = await graphqlRequest<any>(
+        mutation,
+        {
+          input: {
+            title: newTitle.trim(),
+            chapterNumber: num,
+            seriesId: selectedSeriesId
+          }
+        },
+        true
+      )
+
+      if (res.errors) throw new Error(res.errors[0].message)
+
+      toast.success('Tạo chương mới thành công.')
+      setCreateDialogOpen(false)
+      setNewTitle('')
+      setNewChapterNumber('')
+      fetchData()
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Lỗi tạo chương: ' + err.message)
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  // 5. Handle Open Submit Workflow Dialog
+  const handleOpenSubmitDialog = (chapter: ChapterDto) => {
+    setTargetChapter(chapter)
+    setSubmittingNote('')
+    setSubmitDialogOpen(true)
+  }
+
+  // 6. Handle Submit Workflow (Snapshot + Submit Manuscript)
+  const handleSubmitWorkflow = async () => {
+    if (!targetChapter) return
+
+    setIsSubmittingWorkflow(true)
+    try {
+      let manuscriptId = targetChapter.manuscriptId
+
+      // Bước 1: Nếu chưa có Snapshot (hoặc cần tạo bản snapshot mới từ workspace), gọi Snapshot
+      if (!manuscriptId || targetChapter.status === 'ReturnedForRevision') {
+        const snapshotMutation = `
+          mutation SnapshotChapter($input: SnapshotChapterRequestInput!) {
+            snapshotChapter(input: $input) {
+              succeeded
+              message
+              data {
+                id
+                name
+                version
+              }
+            }
+          }
+        `
+        const snapshotRes = await graphqlRequest<any>(
+          snapshotMutation,
+          {
+            input: {
+              chapterId: targetChapter.id,
+              name: `Bản thảo: Chương ${targetChapter.chapterNumber}`
+            }
+          },
+          true
+        )
+
+        if (snapshotRes.errors) throw new Error(snapshotRes.errors[0].message)
+        const snapshotResult = snapshotRes.data?.snapshotChapter
+        if (!snapshotResult?.succeeded) {
+          throw new Error(snapshotResult?.message || 'Tạo bản đóng gói (Snapshot) thất bại.')
+        }
+
+        manuscriptId = snapshotResult.data.id
+        toast.info(`Đã đóng gói bản thảo thành công (Phiên bản V${snapshotResult.data.version}).`)
+      }
+
+      // Bước 2: Gọi mutation SubmitManuscript nộp lên Tantou Editor
+      const submitMutation = `
+        mutation SubmitManuscript($manuscriptId: UUID!, $note: String) {
+          submitManuscript(manuscriptId: $manuscriptId, note: $note) {
+            id
+            title
+            status
+          }
+        }
+      `
+      const submitRes = await graphqlRequest<any>(
+        submitMutation,
+        {
+          manuscriptId: manuscriptId,
+          note: submittingNote.trim() || null
+        },
+        true
+      )
+
+      if (submitRes.errors) throw new Error(submitRes.errors[0].message)
+
+      toast.success('Đã gửi nộp duyệt bản thảo thành công lên Tantou Editor phụ trách.')
+      setSubmitDialogOpen(false)
+      setTargetChapter(null)
+      fetchData()
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Lỗi nộp duyệt: ' + err.message)
+    } finally {
+      setIsSubmittingWorkflow(false)
+    }
+  }
+
+  // Filter lists
+  const inProgressChapters = chapters.filter(ch => ch.status === 'draft' || ch.status === 'ReturnedForRevision')
+  const reviewChapters = chapters.filter(ch => ch.status === 'Submitted' || ch.status === 'UnderTantouReview' || ch.status === 'ForwardedToBoard')
+  const publishedChapters = chapters.filter(ch => ch.status === 'published' || ch.status === 'Approved' || ch.status === 'Published')
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="space-y-6 max-w-6xl mx-auto p-1">
+        
+        {/* Banner Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-6 rounded-2xl border border-primary/10">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Quản lý chương</h1>
-            <p className="text-muted-foreground">Theo dõi tiến độ và quản lý các chương manga</p>
+            <h1 className="text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-2">
+              <BookOpen className="h-8 w-8 text-primary" />
+              Sáng tác & Chương Truyện
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Quản lý các chương sáng tác, đóng gói bản thảo và gửi nộp duyệt cho Biên tập viên của bạn.
+            </p>
           </div>
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            Tạo chương mới
-          </Button>
+          {selectedSeriesId && (
+            <Button className="rounded-xl font-semibold gap-2 shadow-sm" onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="h-5 w-5" />
+              Tạo chương mới
+            </Button>
+          )}
         </div>
 
-        {/* Filter */}
-        <div className="flex items-center gap-4">
-          <div className="w-64">
-            <Select value={selectedSeries} onValueChange={setSelectedSeries}>
-              <SelectTrigger>
-                <SelectValue placeholder="Chọn series" />
+        {/* Filters */}
+        <div className="flex items-center gap-3">
+          <div className="w-72">
+            <Select value={selectedSeriesId} onValueChange={setSelectedSeriesId}>
+              <SelectTrigger className="rounded-xl border-border bg-card">
+                <SelectValue placeholder="Chọn bộ truyện sáng tác" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Tất cả series</SelectItem>
-                {mySeries.map((series) => (
-                  <SelectItem key={series.id} value={series.id}>
-                    {series.title}
-                  </SelectItem>
-                ))}
+                {mySeries.length === 0 ? (
+                  <SelectItem value="none" disabled>Chưa có bộ truyện sáng tác nào</SelectItem>
+                ) : (
+                  mySeries.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
         </div>
 
-        {/* Tabs */}
-        <Tabs defaultValue="in_progress" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="in_progress">
-              Đang làm ({inProgressChapters.length})
-            </TabsTrigger>
-            <TabsTrigger value="review">
-              Chờ duyệt ({reviewChapters.length})
-            </TabsTrigger>
-            <TabsTrigger value="published">
-              Đã xuất bản ({publishedChapters.length})
-            </TabsTrigger>
-          </TabsList>
+        {/* Loading / Main content */}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center min-h-[300px] gap-3">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+            <p className="text-muted-foreground text-sm font-medium">Đang tải danh sách chương manga...</p>
+          </div>
+        ) : mySeries.length === 0 ? (
+          <Card className="border-dashed bg-card/50 flex flex-col items-center justify-center p-12 text-center rounded-2xl min-h-[320px]">
+            <BookOpen className="h-12 w-12 text-muted-foreground opacity-55 mb-3" />
+            <CardTitle className="text-xl font-bold mb-1">Chưa có bộ truyện sáng tác</CardTitle>
+            <CardDescription className="max-w-md">
+              Bạn cần gửi đề xuất mở bộ truyện mới và được Hội đồng phê duyệt hoạt động trước khi tạo chương sáng tác.
+            </CardDescription>
+          </Card>
+        ) : (
+          <Tabs defaultValue="in_progress" className="space-y-6">
+            <TabsList className="bg-muted p-1 rounded-xl">
+              <TabsTrigger value="in_progress" className="rounded-lg font-semibold px-4 py-1.5">
+                Đang làm ({inProgressChapters.length})
+              </TabsTrigger>
+              <TabsTrigger value="review" className="rounded-lg font-semibold px-4 py-1.5">
+                Đang kiểm duyệt ({reviewChapters.length})
+              </TabsTrigger>
+              <TabsTrigger value="published" className="rounded-lg font-semibold px-4 py-1.5">
+                Đã xuất bản ({publishedChapters.length})
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="in_progress" className="space-y-4">
-            {inProgressChapters.length === 0 ? (
-              <Card className="bg-card">
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <CheckCircle2 className="h-12 w-12 text-muted-foreground/50" />
-                  <p className="mt-2 text-muted-foreground">Không có chương nào đang làm</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {inProgressChapters.map((chapter) => (
-                  <ChapterCard key={chapter.id} chapter={chapter} />
-                ))}
+            {/* Tab: In Progress */}
+            <TabsContent value="in_progress" className="space-y-4">
+              {inProgressChapters.length === 0 ? (
+                <Card className="border-dashed bg-card flex flex-col items-center justify-center py-16 text-center rounded-xl">
+                  <CheckCircle2 className="h-12 w-12 text-muted-foreground/45 mb-2" />
+                  <p className="text-muted-foreground text-sm">Không có chương truyện nào đang chỉnh sửa.</p>
+                </Card>
+              ) : (
+                <div className="grid gap-4">
+                  {inProgressChapters.map((ch) => (
+                    <ChapterCard key={ch.id} chapter={ch} onSubmit={handleOpenSubmitDialog} />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Tab: Under Review */}
+            <TabsContent value="review" className="space-y-4">
+              {reviewChapters.length === 0 ? (
+                <Card className="border-dashed bg-card flex flex-col items-center justify-center py-16 text-center rounded-xl">
+                  <CheckCircle2 className="h-12 w-12 text-muted-foreground/45 mb-2" />
+                  <p className="text-muted-foreground text-sm">Không có chương nào đang trong tiến trình kiểm duyệt.</p>
+                </Card>
+              ) : (
+                <div className="grid gap-4">
+                  {reviewChapters.map((ch) => (
+                    <ChapterCard key={ch.id} chapter={ch} onSubmit={handleOpenSubmitDialog} />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Tab: Published */}
+            <TabsContent value="published" className="space-y-4">
+              {publishedChapters.length === 0 ? (
+                <Card className="border-dashed bg-card flex flex-col items-center justify-center py-16 text-center rounded-xl">
+                  <CheckCircle2 className="h-12 w-12 text-muted-foreground/45 mb-2" />
+                  <p className="text-muted-foreground text-sm">Chưa có chương truyện nào được xuất bản chính thức.</p>
+                </Card>
+              ) : (
+                <div className="grid gap-4">
+                  {publishedChapters.map((ch) => (
+                    <ChapterCard key={ch.id} chapter={ch} onSubmit={handleOpenSubmitDialog} />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        )}
+
+        {/* Dialog: Create Chapter */}
+        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+          <DialogContent className="max-w-md rounded-2xl border-border bg-card p-6">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <Plus className="h-5 w-5 text-primary" />
+                Tạo Chương Mới
+              </DialogTitle>
+              <DialogDescription>
+                Thêm một chương truyện mới cho bộ truyện hiện tại.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 my-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="num" className="text-sm font-semibold">Số thứ tự chương (Chapter Number)</Label>
+                <Input
+                  id="num"
+                  type="number"
+                  step="any"
+                  placeholder="Ví dụ: 1 hoặc 2 hoặc 1.5"
+                  value={newChapterNumber}
+                  onChange={(e) => setNewChapterNumber(e.target.value)}
+                  className="rounded-xl border-border bg-background"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="title" className="text-sm font-semibold">Tiêu đề chương</Label>
+                <Input
+                  id="title"
+                  placeholder="Ví dụ: Chương 1: Khởi đầu mới"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="rounded-xl border-border bg-background"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" className="rounded-xl" onClick={() => setCreateDialogOpen(false)} disabled={isCreating}>
+                Hủy bỏ
+              </Button>
+              <Button className="rounded-xl bg-primary text-primary-foreground font-semibold" onClick={handleCreateChapter} disabled={isCreating}>
+                {isCreating ? 'Đang tạo...' : 'Tạo chương'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog: Submit Workflow */}
+        <Dialog open={submitDialogOpen} onOpenChange={setSubmitDialogOpen}>
+          <DialogContent className="max-w-md rounded-2xl border-border bg-card p-6">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <Send className="h-5 w-5 text-primary" />
+                Nộp Duyệt Bản Thảo
+              </DialogTitle>
+              <DialogDescription>
+                Hệ thống sẽ tiến hành đóng gói (Snapshot) ảnh truyện hiện tại và gửi bản thảo này đến Tantou Editor để kiểm duyệt.
+              </DialogDescription>
+            </DialogHeader>
+
+            {targetChapter && (
+              <div className="space-y-4 my-4">
+                <div className="p-3 bg-secondary/20 rounded-xl border border-border/50 space-y-1">
+                  <h4 className="font-bold text-foreground">Chương {targetChapter.chapterNumber}: {targetChapter.title}</h4>
+                  <p className="text-xs text-muted-foreground">Phiên bản bản thảo hiện tại: <span className="font-semibold text-foreground">V{targetChapter.version}</span></p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="note" className="text-sm font-semibold">Lời nhắn gửi Biên tập viên (Tùy chọn)</Label>
+                  <Textarea
+                    id="note"
+                    placeholder="Nhập lời nhắn hoặc ghi chú của bạn về bản thảo chương này gửi đến Tantou Editor..."
+                    value={submittingNote}
+                    onChange={(e) => setSubmittingNote(e.target.value)}
+                    className="min-h-[90px] rounded-xl border-border bg-background resize-none"
+                  />
+                </div>
               </div>
             )}
-          </TabsContent>
 
-          <TabsContent value="review" className="space-y-4">
-            {reviewChapters.length === 0 ? (
-              <Card className="bg-card">
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <CheckCircle2 className="h-12 w-12 text-muted-foreground/50" />
-                  <p className="mt-2 text-muted-foreground">Không có chương nào chờ duyệt</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {reviewChapters.map((chapter) => (
-                  <ChapterCard key={chapter.id} chapter={chapter} />
-                ))}
-              </div>
-            )}
-          </TabsContent>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" className="rounded-xl" onClick={() => setSubmitDialogOpen(false)} disabled={isSubmittingWorkflow}>
+                Hủy bỏ
+              </Button>
+              <Button className="rounded-xl bg-primary text-primary-foreground font-semibold gap-2" onClick={handleSubmitWorkflow} disabled={isSubmittingWorkflow}>
+                {isSubmittingWorkflow ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent"></div>
+                    Đang nộp...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" />
+                    Xác nhận nộp duyệt
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-          <TabsContent value="published" className="space-y-4">
-            {publishedChapters.length === 0 ? (
-              <Card className="bg-card">
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <CheckCircle2 className="h-12 w-12 text-muted-foreground/50" />
-                  <p className="mt-2 text-muted-foreground">Chưa có chương nào được xuất bản</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {publishedChapters.map((chapter) => (
-                  <ChapterCard key={chapter.id} chapter={chapter} />
-                ))}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
       </div>
     </AppShell>
   )
 }
 
-function ChapterCard({ chapter }: { chapter: Chapter }) {
-  const deadline = new Date(chapter.deadline)
-  const daysLeft = Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-  const isOverdue = daysLeft < 0
-  const isUrgent = daysLeft <= 3 && daysLeft >= 0
+function ChapterCard({ chapter, onSubmit }: { chapter: ChapterDto; onSubmit: (ch: ChapterDto) => void }) {
+  const isDraft = chapter.status === 'draft'
+  const isReturned = chapter.status === 'ReturnedForRevision'
+  const isUnderReview = chapter.status === 'Submitted' || chapter.status === 'UnderTantouReview' || chapter.status === 'ForwardedToBoard'
+  const isPublished = chapter.status === 'published' || chapter.status === 'Approved' || chapter.status === 'Published'
 
-  const progress = chapter.status === 'published' ? 100 
-    : chapter.status === 'approved' ? 95
-    : chapter.status === 'review' ? 80
-    : chapter.status === 'in_progress' ? 45
+  const progress = isPublished ? 100
+    : chapter.status === 'Approved' ? 95
+    : chapter.status === 'ForwardedToBoard' ? 80
+    : chapter.status === 'UnderTantouReview' ? 65
+    : chapter.status === 'Submitted' ? 50
+    : isReturned ? 30
     : 10
 
   return (
-    <Card className="bg-card">
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex gap-4">
-            <div className="flex h-20 w-16 items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground">
-              Preview
+    <Card className="bg-card hover:border-primary/10 hover:shadow-sm transition-all rounded-2xl overflow-hidden border border-border/80">
+      <CardContent className="p-6 space-y-4">
+        
+        {/* Upper Card Row */}
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div className="flex gap-4 items-start">
+            {/* Fallback Preview Cover */}
+            <div className="flex h-20 w-16 items-center justify-center rounded-xl bg-gradient-to-br from-secondary/50 to-muted/80 text-primary border border-border/60 flex-shrink-0">
+              <BookOpen className="h-7 w-7 opacity-60" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-foreground">
-                  Chương {chapter.number}: {chapter.title}
+
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-bold text-foreground">
+                  Chương {chapter.chapterNumber}: {chapter.title}
                 </h3>
                 <Badge variant={
-                  chapter.status === 'published' ? 'default' :
-                  chapter.status === 'review' ? 'secondary' : 'outline'
-                }>
-                  {getStatusLabel(chapter.status)}
+                  isPublished ? 'default' :
+                  isUnderReview ? 'secondary' :
+                  isReturned ? 'destructive' : 'outline'
+                } className="font-semibold text-xs py-0.5 rounded-full">
+                  {getStatusLabel(chapter.status || 'draft')}
                 </Badge>
+                {chapter.version && (
+                  <Badge variant="outline" className="text-[10px] font-normal border-border rounded-full py-0">
+                    Bản thảo V{chapter.version}
+                  </Badge>
+                )}
               </div>
-              <p className="text-sm text-muted-foreground mt-1">{chapter.seriesTitle}</p>
               
-              <div className="mt-3 flex items-center gap-4 text-sm">
-                <div className="flex items-center gap-1">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className={
-                    isOverdue ? 'text-destructive font-medium' :
-                    isUrgent ? 'text-warning font-medium' :
-                    'text-muted-foreground'
-                  }>
-                    {isOverdue 
-                      ? `Quá hạn ${Math.abs(daysLeft)} ngày`
-                      : `Còn ${daysLeft} ngày`
-                    }
-                  </span>
-                </div>
-                <span className="text-muted-foreground">•</span>
-                <span className="text-muted-foreground">
-                  Tạo: {chapter.createdAt}
-                </span>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground/60" />
+                <span>Ngày tạo: {new Date(chapter.createdAt).toLocaleString('vi-VN')}</span>
               </div>
             </div>
           </div>
 
+          {/* Action Dropdown Menu */}
           <div className="flex items-center gap-2">
-            {(isOverdue || isUrgent) && chapter.status !== 'published' && (
-              <div className="flex items-center gap-1 text-warning">
-                <AlertTriangle className="h-4 w-4" />
-              </div>
-            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" className="rounded-full">
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem>
-                  <Eye className="mr-2 h-4 w-4" />
+              <DropdownMenuContent align="end" className="rounded-xl">
+                <DropdownMenuItem className="gap-2">
+                  <Eye className="h-4 w-4" />
                   Xem chi tiết
                 </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <FileEdit className="mr-2 h-4 w-4" />
+                <DropdownMenuItem className="gap-2">
+                  <FileEdit className="h-4 w-4" />
                   Chỉnh sửa
                 </DropdownMenuItem>
-                {chapter.status === 'in_progress' && (
-                  <DropdownMenuItem>
-                    <Send className="mr-2 h-4 w-4" />
-                    Nộp bản thảo
-                  </DropdownMenuItem>
-                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
 
-        <div className="mt-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-            <span>Tiến độ hoàn thành</span>
+        {/* Feedback block for ReturnedForRevision */}
+        {isReturned && chapter.feedback && (
+          <div className="flex flex-col gap-2 p-3.5 bg-yellow-500/10 border border-yellow-500/15 text-yellow-600 rounded-xl text-xs font-medium">
+            <div className="flex gap-2">
+              <MessageSquare className="h-4 w-4 flex-shrink-0 text-yellow-600/80 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold">Nhận xét sửa đổi của Tantou Editor:</p>
+                <p className="text-muted-foreground font-normal leading-relaxed">{chapter.feedback}</p>
+              </div>
+            </div>
+            {chapter.annotatedPagesText && (
+              <div className="mt-2 pt-2 border-t border-yellow-500/20 text-red-500 font-bold flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+                <span>{chapter.annotatedPagesText}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Progress Bar */}
+        <div className="space-y-1 pt-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground font-medium">
+            <span>Quy trình hoàn thành chương</span>
             <span>{progress}%</span>
           </div>
-          <Progress value={progress} className="h-2" />
+          <Progress value={progress} className="h-2 rounded-full bg-secondary" />
         </div>
 
-        <div className="mt-4 flex gap-2">
-          <Link href={`/mangaka/tasks?chapter=${chapter.id}`} className="flex-1">
-            <Button variant="outline" className="w-full gap-2">
-              <FileEdit className="h-4 w-4" />
-              Phân công công việc
+        {/* Action Buttons Row */}
+        <div className="flex gap-3 flex-wrap pt-2">
+          <Link href={`/mangaka/workspace?chapterId=${chapter.id}`} className="flex-1 min-w-[140px]">
+            <Button variant="outline" className="w-full gap-2 rounded-xl font-semibold border-border hover:bg-secondary/40">
+              <Eye className="h-4 w-4" />
+              Vào Workspace vẽ tranh
             </Button>
           </Link>
-          <Button variant="outline" className="gap-2">
-            <Eye className="h-4 w-4" />
-            Xem trang
-          </Button>
-          {chapter.status === 'in_progress' && (
-            <Button className="gap-2">
+          <Link href={`/mangaka/tasks?chapter=${chapter.id}`} className="flex-1 min-w-[140px]">
+            <Button variant="outline" className="w-full gap-2 rounded-xl font-semibold border-border hover:bg-secondary/40">
+              <UserCheck className="h-4 w-4" />
+              Giao việc cho Assistant
+            </Button>
+          </Link>
+          {(isDraft || isReturned) && (
+            <Button 
+              className="flex-1 min-w-[140px] rounded-xl bg-primary text-primary-foreground font-bold shadow-sm gap-2"
+              onClick={() => onSubmit(chapter)}
+            >
               <Send className="h-4 w-4" />
-              Nộp duyệt
+              Snapshot & Nộp duyệt
             </Button>
           )}
         </div>
+
       </CardContent>
     </Card>
   )

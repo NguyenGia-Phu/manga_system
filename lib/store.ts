@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import { UserRole, User, mockUsers, Series } from './mock-data'
+import { UserRole, User, Series } from './mock-data'
 
 interface AppStore {
   currentUser: User | null
@@ -13,13 +13,16 @@ interface AppStore {
 }
 
 export const useAppStore = create<AppStore>((set) => ({
-  currentUser: mockUsers[0], // Default to mangaka
+  currentUser: null,
   currentRole: 'mangaka',
   mySeries: [],
   setCurrentRole: (role) => {
-    const user = mockUsers.find(u => u.role === role) || mockUsers[0]
-    set({ currentRole: role, currentUser: user })
+    set((state) => ({
+      currentRole: role,
+      currentUser: state.currentUser ? { ...state.currentUser, role } : null,
+    }))
   },
   setCurrentUser: (user) => set({ currentUser: user, currentRole: user.role }),
   setMySeries: (series) => set({ mySeries: series }),
 }))
+

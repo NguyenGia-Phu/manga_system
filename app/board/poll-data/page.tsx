@@ -99,7 +99,7 @@ export default function BoardPollDataPage() {
 
   if (submitted) {
     return (
-      <AppShell role="board">
+      <AppShell>
         <div className="p-6">
           <Card className="max-w-2xl mx-auto">
             <CardContent className="pt-12 pb-8 text-center">
@@ -128,7 +128,7 @@ export default function BoardPollDataPage() {
   }
 
   return (
-    <AppShell role="board">
+    <AppShell>
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Poll Data Entry</h1>

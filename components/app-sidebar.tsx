@@ -1,12 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { useEffect } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/lib/store'
-import { getRoleLabel } from '@/lib/mock-data'
-import { logout } from '@/lib/api'
+import { getRoleLabel, UserRole } from '@/lib/mock-data'
+import { logout, getUserRoles } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -35,7 +35,25 @@ import {
   PenTool,
   CheckSquare,
   LogOut,
+  ShieldAlert,
 } from 'lucide-react'
+
+// Map backend role names → frontend role keys
+const BACKEND_TO_FRONTEND_ROLE: Record<string, UserRole> = {
+  'Mangaka': 'mangaka',
+  'Assistant': 'assistant',
+  'Tantou Editor': 'editor',
+  'Editorial Board': 'board',
+  'Admin': 'admin',
+}
+
+const ROLE_ICONS: Record<UserRole, React.ElementType> = {
+  mangaka: PenTool,
+  assistant: Palette,
+  editor: FileEdit,
+  board: Users,
+  admin: ShieldAlert,
+}
 
 const roleNavItems = {
   mangaka: [
@@ -43,6 +61,7 @@ const roleNavItems = {
     { href: '/mangaka/series', label: 'Series của tôi', icon: BookOpen },
     { href: '/mangaka/chapters', label: 'Quản lý chương', icon: FileEdit },
     { href: '/mangaka/tasks', label: 'Phân công công việc', icon: ClipboardList },
+    { href: '/mangaka/assistants', label: 'Quản lý trợ lý', icon: Users },
     { href: '/mangaka/review', label: 'Duyệt công việc', icon: CheckSquare },
     { href: '/mangaka/rankings', label: 'Bảng xếp hạng', icon: TrendingUp },
   ],
@@ -61,6 +80,13 @@ const roleNavItems = {
   board: [
     { href: '/board', label: 'Tổng quan', icon: Home },
     { href: '/board/voting', label: 'Bỏ phiếu', icon: Vote },
+    { href: '/board/series-approval', label: 'Xét duyệt tác phẩm', icon: FileCheck },
+    { href: '/board/rankings', label: 'Bảng xếp hạng', icon: BarChart3 },
+    { href: '/board/poll-data', label: 'Nhập dữ liệu bình chọn', icon: TrendingUp },
+  ],
+  admin: [
+    { href: '/board', label: 'Tổng quan', icon: Home },
+    { href: '/board/voting', label: 'Bỏ phiếu', icon: Vote },
     { href: '/board/rankings', label: 'Bảng xếp hạng', icon: BarChart3 },
     { href: '/board/poll-data', label: 'Nhập dữ liệu bình chọn', icon: TrendingUp },
   ],
@@ -68,22 +94,56 @@ const roleNavItems = {
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const { currentRole, currentUser, setCurrentRole, setCurrentUser } = useAppStore()
+  const [availableRoles, setAvailableRoles] = useState<UserRole[]>([])
   const navItems = roleNavItems[currentRole]
 
   useEffect(() => {
+    // Load user info from localStorage
     const storedUser = localStorage.getItem('currentUser')
     if (storedUser) {
       const user = JSON.parse(storedUser)
       setCurrentUser({
         id: user.id || 'u1',
-        name: user.username || user.email?.split('@')[0] || 'Mangaka',
+        name: user.username || user.email?.split('@')[0] || 'User',
         avatar: '/avatars/default.jpg',
-        role: 'mangaka',
-        email: user.email || 'tanaka@studio.jp'
+        role: currentRole,
+        email: user.email || ''
       })
     }
-  }, [setCurrentUser])
+
+    // Load actual roles from localStorage (set during login from JWT)
+    const backendRoles = getUserRoles()
+    const frontendRoles = backendRoles
+      .map(r => BACKEND_TO_FRONTEND_ROLE[r])
+      .filter(Boolean) as UserRole[]
+
+    if (frontendRoles.length > 0) {
+      setAvailableRoles(frontendRoles)
+
+      // Determine current role from URL path
+      const pathRole = pathname.split('/')[1] as UserRole
+      if (frontendRoles.includes(pathRole)) {
+        setCurrentRole(pathRole)
+      } else if (!frontendRoles.includes(currentRole)) {
+        // Current role is not available for this user, switch to first available
+        setCurrentRole(frontendRoles[0])
+        router.push(`/${frontendRoles[0]}`)
+      }
+    } else {
+      // Fallback: no roles parsed, show current
+      setAvailableRoles([currentRole])
+    }
+  }, [pathname])
+
+  const handleSwitchRole = (role: UserRole) => {
+    if (role === currentRole) return
+    // Check if user actually has this role
+    if (!availableRoles.includes(role)) return
+    setCurrentRole(role)
+    router.push(`/${role}`)
+  }
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-sidebar-border bg-sidebar">
@@ -116,24 +176,34 @@ export function AppSidebar() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel>Chuyển vai trò (Demo)</DropdownMenuLabel>
+              <DropdownMenuLabel>Chuyển vai trò</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setCurrentRole('mangaka')}>
-                <PenTool className="mr-2 h-4 w-4" />
-                Mangaka
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setCurrentRole('assistant')}>
-                <Palette className="mr-2 h-4 w-4" />
-                Trợ lý
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setCurrentRole('editor')}>
-                <FileEdit className="mr-2 h-4 w-4" />
-                Biên tập viên
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setCurrentRole('board')}>
-                <Users className="mr-2 h-4 w-4" />
-                Hội đồng biên tập
-              </DropdownMenuItem>
+              {(['mangaka', 'assistant', 'editor', 'board', 'admin'] as UserRole[]).map(role => {
+                const isAvailable = availableRoles.includes(role)
+                const isActive = currentRole === role
+                const Icon = ROLE_ICONS[role]
+
+                return (
+                  <DropdownMenuItem
+                    key={role}
+                    onClick={() => isAvailable && handleSwitchRole(role)}
+                    disabled={!isAvailable}
+                    className={cn(
+                      isActive && 'bg-accent',
+                      !isAvailable && 'opacity-40 cursor-not-allowed'
+                    )}
+                  >
+                    <Icon className="mr-2 h-4 w-4" />
+                    <span className="flex-1">{getRoleLabel(role)}</span>
+                    {!isAvailable && (
+                      <ShieldAlert className="h-3 w-3 text-muted-foreground ml-2" />
+                    )}
+                    {isActive && (
+                      <span className="ml-2 text-xs text-primary">●</span>
+                    )}
+                  </DropdownMenuItem>
+                )
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -188,7 +258,5 @@ export function AppSidebar() {
         </div>
       </div>
     </aside>
-  )
-}
   )
 }

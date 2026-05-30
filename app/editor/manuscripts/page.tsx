@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AppShell } from '@/components/app-shell'
-import { mockChapters, mockSeries, getStatusLabel } from '@/lib/mock-data'
+import { graphqlRequest } from '@/lib/api'
 import {
   Search,
   Clock,
@@ -18,22 +18,79 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
+type SubmissionItem = {
+  id: string
+  title: string
+  status: string
+  seriesTitle: string
+  submittedAt?: string | null
+  resolvedAt?: string | null
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Ban nhap',
+  submitted: 'Da nop',
+  undertantoureview: 'Dang duyet',
+  returnedforrevision: 'Can sua lai',
+  forwardedtoboard: 'Chuyen hoi dong',
+  inboardvoting: 'Dang bo phieu',
+  approved: 'Da duyet',
+  rejected: 'Tu choi',
+  postponed: 'Tam hoan',
+}
+
+function getStatusLabel(status: string): string {
+  return STATUS_LABELS[status.toLowerCase()] || status
+}
+
 export default function EditorManuscriptsPage() {
   const [searchQuery, setSearchQuery] = useState('')
-  
-  const managedSeries = mockSeries.filter(s => s.editorId === 'u4')
-  const allChapters = mockChapters.filter(ch => 
-    managedSeries.some(s => s.id === ch.seriesId)
+  const [submissions, setSubmissions] = useState<SubmissionItem[]>([])
+
+  useEffect(() => {
+    const fetchSubmissions = async () => {
+      const query = `
+        query GetSubmissionInbox {
+          submissionInbox {
+            id
+            title
+            status
+            seriesTitle
+            submittedAt
+            resolvedAt
+          }
+        }
+      `
+
+      try {
+        const res = await graphqlRequest<{ submissionInbox: SubmissionItem[] }>(query, {}, true)
+        const items = (res.data?.submissionInbox || []).map((item) => ({
+          ...item,
+          status: item.status.toLowerCase(),
+        }))
+        setSubmissions(items)
+      } catch (error: any) {
+        console.error('Error fetching submissions:', error)
+        toast.error('Lỗi nạp danh sách bản thảo: ' + (error?.message || 'Unknown error'))
+        setSubmissions([])
+      }
+    }
+
+    fetchSubmissions()
+  }, [])
+
+  const filteredSubmissions = submissions.filter((submission) =>
+    submission.seriesTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    submission.title.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const filteredChapters = allChapters.filter(ch =>
-    ch.seriesTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ch.title.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const pendingStatuses = new Set(['submitted', 'undertantoureview'])
+  const approvedStatuses = new Set(['approved'])
+  const publishedStatuses = new Set(['forwardedtoboard', 'inboardvoting'])
 
-  const pendingChapters = filteredChapters.filter(ch => ch.status === 'review')
-  const approvedChapters = filteredChapters.filter(ch => ch.status === 'approved')
-  const publishedChapters = filteredChapters.filter(ch => ch.status === 'published')
+  const pendingChapters = filteredSubmissions.filter((submission) => pendingStatuses.has(submission.status))
+  const approvedChapters = filteredSubmissions.filter((submission) => approvedStatuses.has(submission.status))
+  const publishedChapters = filteredSubmissions.filter((submission) => publishedStatuses.has(submission.status))
 
   return (
     <AppShell>
@@ -80,7 +137,7 @@ export default function EditorManuscriptsPage() {
             ) : (
               <div className="space-y-4">
                 {pendingChapters.map((chapter) => (
-                  <ManuscriptCard key={chapter.id} chapter={chapter} />
+                  <ManuscriptCard key={chapter.id} submission={chapter} />
                 ))}
               </div>
             )}
@@ -97,7 +154,7 @@ export default function EditorManuscriptsPage() {
             ) : (
               <div className="space-y-4">
                 {approvedChapters.map((chapter) => (
-                  <ManuscriptCard key={chapter.id} chapter={chapter} />
+                  <ManuscriptCard key={chapter.id} submission={chapter} />
                 ))}
               </div>
             )}
@@ -114,7 +171,7 @@ export default function EditorManuscriptsPage() {
             ) : (
               <div className="space-y-4">
                 {publishedChapters.map((chapter) => (
-                  <ManuscriptCard key={chapter.id} chapter={chapter} />
+                  <ManuscriptCard key={chapter.id} submission={chapter} />
                 ))}
               </div>
             )}
@@ -125,10 +182,8 @@ export default function EditorManuscriptsPage() {
   )
 }
 
-function ManuscriptCard({ chapter }: { chapter: typeof mockChapters[0] }) {
-  const deadline = new Date(chapter.deadline)
-  const daysLeft = Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-  const isUrgent = daysLeft <= 3 && chapter.status === 'review'
+function ManuscriptCard({ submission }: { submission: SubmissionItem }) {
+  const isUrgent = submission.status === 'undertantoureview'
 
   return (
     <Card className={`bg-card ${isUrgent ? 'border-warning/50' : ''}`}>
@@ -140,51 +195,44 @@ function ManuscriptCard({ chapter }: { chapter: typeof mockChapters[0] }) {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-foreground">{chapter.seriesTitle}</h3>
-                <Badge variant={
-                  chapter.status === 'published' ? 'default' :
-                  chapter.status === 'approved' ? 'secondary' : 'outline'
-                }>
-                  {getStatusLabel(chapter.status)}
+                <h3 className="font-semibold text-foreground">{submission.seriesTitle}</h3>
+                <Badge variant={submission.status === 'approved' ? 'secondary' : 'outline'}>
+                  {getStatusLabel(submission.status)}
                 </Badge>
                 {isUrgent && (
                   <Badge variant="destructive">Gấp</Badge>
                 )}
               </div>
               <p className="text-muted-foreground mt-1">
-                Chương {chapter.number}: {chapter.title}
+                {submission.title}
               </p>
               <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />
-                  {chapter.status === 'published' 
-                    ? `Xuất bản: ${chapter.approvedAt}`
-                    : `Deadline: ${chapter.deadline}`
+                  {submission.resolvedAt
+                    ? `Xu ly: ${submission.resolvedAt}`
+                    : `Nop: ${submission.submittedAt || 'N/A'}`
                   }
                 </span>
-                {chapter.submittedAt && (
+                {submission.submittedAt && (
                   <>
                     <span>•</span>
-                    <span>Nộp: {chapter.submittedAt}</span>
+                    <span>Nop: {submission.submittedAt}</span>
                   </>
                 )}
               </div>
             </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="gap-1">
-              <Eye className="h-4 w-4" />
-              Xem
-            </Button>
-            {chapter.status === 'review' && (
-              <Link href={`/editor/review?chapter=${chapter.id}`}>
+            {submission.status === 'submitted' || submission.status === 'undertantoureview' ? (
+              <Link href={`/editor/review?submission=${submission.id}`}>
                 <Button size="sm" className="gap-1">
                   <PenLine className="h-4 w-4" />
                   Xét duyệt
                 </Button>
               </Link>
-            )}
-            {chapter.status === 'approved' && (
+            ) : null}
+            {submission.status === 'approved' && (
               <Button size="sm" className="gap-1">
                 <FileCheck className="h-4 w-4" />
                 Gửi in
