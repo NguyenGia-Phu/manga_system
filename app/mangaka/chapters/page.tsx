@@ -154,7 +154,15 @@ export default function MangakaChaptersPage() {
         const list = res.data?.mySeries || []
         setMySeries(list)
         if (list.length > 0) {
-          setSelectedSeriesId(list[0].id)
+          let targetSeriesId = list[0].id
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search)
+            const seriesIdFromUrl = params.get('seriesId')
+            if (seriesIdFromUrl && list.some(s => s.id === seriesIdFromUrl)) {
+              targetSeriesId = seriesIdFromUrl
+            }
+          }
+          setSelectedSeriesId(targetSeriesId)
         } else {
           setLoading(false)
         }

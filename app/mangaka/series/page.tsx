@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 import { graphqlRequest, restRequest } from '@/lib/api'
+import Link from 'next/link'
 
 interface Series {
   id: string
@@ -586,9 +587,11 @@ function SeriesCard({
           </div>
 
           <div className="mt-3 flex gap-2">
-            <Button size="sm" className="flex-1">
-              Quản lý
-            </Button>
+            <Link href={`/mangaka/chapters?seriesId=${series.id}`} className="flex-1">
+              <Button size="sm" className="w-full">
+                Quản lý
+              </Button>
+            </Link>
           </div>
         </div>
       </div>

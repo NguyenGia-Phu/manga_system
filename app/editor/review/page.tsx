@@ -91,6 +91,7 @@ interface AnnotationItem {
   width: number
   height: number
   resolved: boolean
+  status: string
   createdAt: string
 }
 
@@ -146,6 +147,9 @@ function EditorReviewContent() {
 
   // Temporary coordinates when clicking the canvas to place an annotation
   const [clickCoords, setClickCoords] = useState<{ x: number; y: number } | null>(null)
+  
+  const [unresolvedCounts, setUnresolvedCounts] = useState<Record<string, number>>({})
+  const [annoReviewFeedback, setAnnoReviewFeedback] = useState('')
 
   const fetchSubmission = async () => {
     if (!submissionId) {
@@ -195,6 +199,7 @@ function EditorReviewContent() {
       const currentMs = sub.manuscripts.find((m) => m.isCurrentVersion) || sub.manuscripts[0]
       if (currentMs) {
         await fetchPages(currentMs.chapterId)
+        await fetchUnresolvedCounts(currentMs.chapterId)
       } else {
         setLoading(false)
       }
@@ -202,6 +207,30 @@ function EditorReviewContent() {
       console.error(err)
       toast.error('Lỗi nạp bản nộp: ' + err.message)
       setLoading(false)
+    }
+  }
+
+  const fetchUnresolvedCounts = async (chapterId: string) => {
+    try {
+      const query = `
+        query GetUnresolvedCountByChapter($chapterId: UUID!) {
+          getUnresolvedCountByChapter(chapterId: $chapterId) {
+            pageId
+            pageNumber
+            unresolvedCount
+          }
+        }
+      `
+      const res = await graphqlRequest<{ getUnresolvedCountByChapter: Array<{ pageId: string, unresolvedCount: number }> }>(query, { chapterId }, true)
+      if (res.errors) throw new Error(res.errors[0].message)
+
+      const countsMap: Record<string, number> = {}
+      ;(res.data?.getUnresolvedCountByChapter || []).forEach((item) => {
+        countsMap[item.pageId] = item.unresolvedCount
+      })
+      setUnresolvedCounts(countsMap)
+    } catch (err: any) {
+      console.error('Error fetching unresolved counts:', err)
     }
   }
 
@@ -286,6 +315,10 @@ function EditorReviewContent() {
     }
   }, [selectedPageIndex, pages])
 
+  useEffect(() => {
+    setAnnoReviewFeedback('')
+  }, [selectedAnnotation])
+
   const activePage = selectedPageIndex >= 0 && selectedPageIndex < pages.length ? pages[selectedPageIndex] : null
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -346,9 +379,59 @@ function EditorReviewContent() {
       setIsAddAnnotationOpen(false)
       setClickCoords(null)
       fetchAnnotations(activePage.id)
+
+      if (submission) {
+        const currentMs = submission.manuscripts.find((m) => m.isCurrentVersion) || submission.manuscripts[0]
+        if (currentMs) {
+          fetchUnresolvedCounts(currentMs.chapterId)
+        }
+      }
     } catch (err: any) {
       console.error(err)
       toast.error('Lỗi tạo ghi chú: ' + err.message)
+    }
+  }
+
+  const handleReviewAnnotation = async (annotationId: string, isApproved: boolean, feedback?: string) => {
+    try {
+      const mutation = `
+        mutation ReviewAnnotation($annotationId: UUID!, $request: ReviewAnnotationRequestInput!) {
+          reviewAnnotation(annotationId: $annotationId, request: $request) {
+            id
+            content
+            status
+          }
+        }
+      `
+      const res = await graphqlRequest<any>(
+        mutation,
+        {
+          annotationId,
+          request: {
+            isApproved,
+            feedback: feedback && feedback.trim() ? feedback.trim() : null
+          }
+        },
+        true
+      )
+      if (res.errors) throw new Error(res.errors[0].message)
+
+      toast.success(isApproved ? 'Đã nghiệm thu và đóng ghi chú thành công!' : 'Đã từ chối và mở lại ghi chú!')
+      setAnnoReviewFeedback('')
+
+      if (activePage) {
+        fetchAnnotations(activePage.id)
+      }
+
+      if (submission) {
+        const currentMs = submission.manuscripts.find((m) => m.isCurrentVersion) || submission.manuscripts[0]
+        if (currentMs) {
+          fetchUnresolvedCounts(currentMs.chapterId)
+        }
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Lỗi duyệt ghi chú: ' + err.message)
     }
   }
 
@@ -465,6 +548,7 @@ function EditorReviewContent() {
   const isPendingTantou = submission.status === 'Submitted'
   const isAuditing = submission.status === 'UnderTantouReview'
   const unresolvedCount = annotations.filter(a => !a.resolved).length
+  const totalUnresolved = Object.values(unresolvedCounts).reduce((a, b) => a + b, 0)
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 p-1">
@@ -637,8 +721,14 @@ function EditorReviewContent() {
         <div className="space-y-4 lg:col-span-1">
           <Card className="bg-card border border-border/80 rounded-2xl overflow-hidden shadow-sm">
             <CardHeader className="py-3 px-4 bg-muted/20 border-b border-border/60">
-              <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-                Danh sách trang ({pages.length})
+              <CardTitle className="text-sm font-bold flex items-center justify-between w-full">
+                <span>Danh sách trang ({pages.length})</span>
+                {totalUnresolved > 0 && (
+                  <Badge variant="destructive" className="text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    {totalUnresolved} lỗi chưa sửa
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-3 max-h-[220px] overflow-y-auto grid grid-cols-4 gap-2">
@@ -646,13 +736,18 @@ function EditorReviewContent() {
                 <button
                   key={p.id}
                   onClick={() => setSelectedPageIndex(idx)}
-                  className={`aspect-[3/4] rounded-lg border font-bold text-xs flex items-center justify-center transition-all ${
+                  className={`aspect-[3/4] rounded-lg border font-bold text-xs flex flex-col items-center justify-center relative transition-all ${
                     selectedPageIndex === idx
                       ? 'bg-primary/10 border-primary text-primary'
                       : 'bg-secondary/30 hover:bg-secondary/60 border-border text-muted-foreground'
                   }`}
                 >
-                  Tr. {p.pageNumber}
+                  <span>Tr. {p.pageNumber}</span>
+                  {unresolvedCounts[p.id] > 0 && (
+                    <Badge variant="destructive" className="absolute -top-1.5 -right-1.5 h-4 w-4 flex items-center justify-center p-0 text-[9px] rounded-full">
+                      {unresolvedCounts[p.id]}
+                    </Badge>
+                  )}
                 </button>
               ))}
             </CardContent>
@@ -679,13 +774,23 @@ function EditorReviewContent() {
                         : 'bg-secondary/30 hover:bg-secondary/60 border-transparent'
                     }`}
                   >
-                    <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                       <Badge variant="outline" className="text-[10px] py-0 border-primary/20 text-primary font-bold bg-primary/5 rounded-full">
                         {anno.category}
                       </Badge>
-                      {anno.resolved && (
-                        <Badge variant="outline" className="text-[10px] py-0 border-success/20 text-success font-bold bg-success/5 rounded-full">
-                          Đã sửa
+                      {anno.status === 'Resolved' && (
+                        <Badge variant="outline" className="text-[10px] py-0 border-warning/30 text-warning font-bold bg-warning/5 rounded-full">
+                          Đang chờ duyệt
+                        </Badge>
+                      )}
+                      {anno.status === 'Closed' && (
+                        <Badge variant="outline" className="text-[10px] py-0 border-success/30 text-success font-bold bg-success/5 rounded-full">
+                          Đã nghiệm thu
+                        </Badge>
+                      )}
+                      {anno.status === 'Open' && (
+                        <Badge variant="outline" className="text-[10px] py-0 border-destructive/30 text-destructive font-bold bg-destructive/5 rounded-full">
+                          Cần chỉnh sửa
                         </Badge>
                       )}
                     </div>
@@ -708,13 +813,51 @@ function EditorReviewContent() {
                 </p>
                 <p className="font-semibold text-muted-foreground flex justify-between">
                   <span>Trạng thái:</span>
-                  <span className={selectedAnnotation.resolved ? 'text-success font-bold' : 'text-destructive font-bold'}>
-                    {selectedAnnotation.resolved ? 'Đã sửa đổi' : 'Chưa sửa đổi'}
+                  <span className={
+                    selectedAnnotation.status === 'Resolved'
+                      ? 'text-warning font-bold'
+                      : selectedAnnotation.status === 'Closed'
+                        ? 'text-success font-bold'
+                        : 'text-destructive font-bold'
+                  }>
+                    {selectedAnnotation.status === 'Resolved'
+                      ? 'Đã sửa đổi (Đang chờ duyệt)'
+                      : selectedAnnotation.status === 'Closed'
+                        ? 'Đã nghiệm thu (Closed)'
+                        : 'Chưa sửa đổi (Open)'}
                   </span>
                 </p>
                 <div className="p-3 bg-secondary/20 rounded-xl border border-border/50 text-foreground font-semibold">
                   {selectedAnnotation.content}
                 </div>
+                {selectedAnnotation.status === 'Resolved' && (
+                  <div className="pt-3 border-t border-border/60 space-y-3">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">Phản hồi của Tantou (nếu từ chối):</Label>
+                    <Textarea
+                      placeholder="Nhập lý do từ chối sửa đổi..."
+                      value={annoReviewFeedback}
+                      onChange={(e) => setAnnoReviewFeedback(e.target.value)}
+                      className="min-h-[60px] rounded-xl text-xs border-border bg-background resize-none"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-success hover:bg-success/90 text-success-foreground text-xs font-semibold rounded-xl"
+                        onClick={() => handleReviewAnnotation(selectedAnnotation.id, true)}
+                      >
+                        Nghiệm thu (Close)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="flex-1 text-xs font-semibold rounded-xl"
+                        onClick={() => handleReviewAnnotation(selectedAnnotation.id, false, annoReviewFeedback)}
+                      >
+                        Từ chối (Reopen)
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

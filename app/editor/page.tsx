@@ -48,7 +48,7 @@ function getStatusLabel(status: string): string {
 export default function EditorDashboard() {
   const [userName, setUserName] = useState('Editor')
   const [managedSeries, setManagedSeries] = useState<SeriesSummary[]>([])
-  const pendingReviews: PendingReview[] = []
+  const [pendingReviews, setPendingReviews] = useState<PendingReview[]>([])
 
   useEffect(() => {
     const storedUser = localStorage.getItem('currentUser')
@@ -91,7 +91,57 @@ export default function EditorDashboard() {
       }
     }
 
+    const fetchPendingReviews = async () => {
+      const query = `
+        query GetSubmissionInbox {
+          submissionInbox {
+            id
+            title
+            status
+            seriesTitle
+            submittedAt
+          }
+        }
+      `
+
+      try {
+        const res = await graphqlRequest<{ submissionInbox: any[] }>(
+          query,
+          {},
+          true
+        )
+
+        const rawReviews = res.data?.submissionInbox || []
+        const filtered = rawReviews
+          .filter((item) => {
+            const status = (item.status || '').toLowerCase()
+            return status === 'submitted' || status === 'undertantoureview'
+          })
+          .map((item) => {
+            const match = item.title.match(/(?:Chương|Ch\.|Chapter)\s*(\d+)/i)
+            const number = match ? parseInt(match[1]) : 1
+
+            const submittedDate = item.submittedAt ? new Date(item.submittedAt) : new Date()
+            const deadlineDate = new Date(submittedDate.getTime() + 7 * 24 * 60 * 60 * 1000)
+
+            return {
+              id: item.id,
+              seriesTitle: item.seriesTitle,
+              number,
+              title: item.title,
+              deadline: deadlineDate.toISOString(),
+            }
+          })
+
+        setPendingReviews(filtered)
+      } catch (error) {
+        console.error('Error fetching pending reviews:', error)
+        setPendingReviews([])
+      }
+    }
+
     fetchSeries()
+    fetchPendingReviews()
   }, [])
 
   const stats = [
@@ -186,7 +236,7 @@ export default function EditorDashboard() {
                           </div>
                         </div>
                       </div>
-                      <Link href={`/editor/review?chapter=${chapter.id}`}>
+                      <Link href={`/editor/review?submission=${chapter.id}`}>
                         <Button size="sm">Xét duyệt</Button>
                       </Link>
                     </div>
