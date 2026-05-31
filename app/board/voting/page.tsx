@@ -46,13 +46,24 @@ interface Proposal {
   status: VoteStatus
 }
 
+export interface SeriesDecision {
+  id: string
+  title: string
+  author: string
+  rank: number
+  currentSchedule: string
+  consecutiveBottom: number
+  decision: string | null
+  schedule: string | null
+}
+
 export default function BoardVotingPage() {
   const [proposals, setProposals] = useState<Proposal[]>(mockNewSeriesProposals)
-  const [seriesDecisions, setSeriesDecisions] = useState(mockSeriesForDecision)
+  const [seriesDecisions, setSeriesDecisions] = useState<SeriesDecision[]>(mockSeriesForDecision as SeriesDecision[])
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null)
   const [voteReason, setVoteReason] = useState("")
   const [decisionDialogOpen, setDecisionDialogOpen] = useState(false)
-  const [selectedSeries, setSelectedSeries] = useState<typeof mockSeriesForDecision[0] | null>(null)
+  const [selectedSeries, setSelectedSeries] = useState<SeriesDecision | null>(null)
   const [decision, setDecision] = useState<string>("")
   const [schedule, setSchedule] = useState<string>("")
 
