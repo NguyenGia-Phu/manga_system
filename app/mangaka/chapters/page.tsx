@@ -141,15 +141,15 @@ export default function MangakaChaptersPage() {
     const fetchSeries = async () => {
       try {
         const query = `
-          query GetMySeries($mangakaId: UUID!) {
-            mySeries(mangakaId: $mangakaId) {
+          query GetMySeries {
+            mySeries {
               id
               title
               status
             }
           }
         `
-        const res = await graphqlRequest<{ mySeries: Series[] }>(query, { mangakaId: currentUser.id }, true)
+        const res = await graphqlRequest<{ mySeries: Series[] }>(query, {}, true)
         if (res.errors) throw new Error(res.errors[0].message)
         const list = res.data?.mySeries || []
         setMySeries(list)
@@ -185,18 +185,10 @@ export default function MangakaChaptersPage() {
           }
         }
       `
-      const chaptersRes = await graphqlRequest<{ chaptersBySeries: ChapterDto[] }>(
-        chaptersQuery,
-        { seriesId: selectedSeriesId },
-        true
-      )
-      if (chaptersRes.errors) throw new Error(chaptersRes.errors[0].message)
-      const rawChapters = chaptersRes.data?.chaptersBySeries || []
-
       // Query Submissions
       const submissionsQuery = `
-        query GetMySubmissions($mangakaId: UUID!) {
-          mySubmissions(mangakaId: $mangakaId) {
+        query GetMySubmissions($seriesId: UUID) {
+          mySubmissions(seriesId: $seriesId) {
             id
             title
             note
@@ -222,11 +214,23 @@ export default function MangakaChaptersPage() {
           }
         }
       `
-      const submissionsRes = await graphqlRequest<{ mySubmissions: Submission[] }>(
-        submissionsQuery,
-        { mangakaId: currentUser.id },
-        true
-      )
+
+      // Fetch chapters and submissions in parallel to prevent sequential waterfall lag
+      const [chaptersRes, submissionsRes] = await Promise.all([
+        graphqlRequest<{ chaptersBySeries: ChapterDto[] }>(
+          chaptersQuery,
+          { seriesId: selectedSeriesId },
+          true
+        ),
+        graphqlRequest<{ mySubmissions: Submission[] }>(
+          submissionsQuery,
+          { seriesId: selectedSeriesId },
+          true
+        )
+      ])
+
+      if (chaptersRes.errors) throw new Error(chaptersRes.errors[0].message)
+      const rawChapters = chaptersRes.data?.chaptersBySeries || []
       const submissionsList = submissionsRes.data?.mySubmissions || []
 
       // Map workflow status dynamically
@@ -256,41 +260,25 @@ export default function MangakaChaptersPage() {
               .find((t) => t.toStatus === 'ReturnedForRevision')
             mapped.feedback = revisionTransition?.comment || 'Yêu cầu chỉnh sửa lại bản thảo.'
 
-            // Lấy thông tin các trang có ghi chú chưa được giải quyết (status === 'Open') - PARALLEL
+            // Lấy thông tin các trang có ghi chú chưa được giải quyết (status === 'Open') - SINGLE QUERY
             try {
-              const pagesQuery = `
-                query GetPagesByChapter($chapterId: UUID!) {
-                  pagesByChapter(chapterId: $chapterId) {
-                    id
-                    pageNumber
-                  }
-                }
-              `
-              const pagesRes = await graphqlRequest<{ pagesByChapter: any[] }>(pagesQuery, { chapterId: ch.id }, true)
-              const pages = pagesRes.data?.pagesByChapter || []
-              
-              const annoQuery = `
-                query GetAnnotationsByPage($pageId: UUID!) {
-                  annotationsByPage(pageId: $pageId) {
-                    status
-                  }
-                }
-              `
-              // Fetch all page annotations in parallel instead of sequential
-              const annoResults = await Promise.all(
-                pages.map(page =>
-                  graphqlRequest<{ annotationsByPage: any[] }>(annoQuery, { pageId: page.id }, true)
-                    .then(res => ({
-                      pageNumber: page.pageNumber,
-                      hasOpen: (res.data?.annotationsByPage || []).some(a => a.status === 'Open')
-                    }))
-                    .catch(() => ({ pageNumber: page.pageNumber, hasOpen: false }))
-                )
+              const unresolvedQuery = `
+                 query GetUnresolvedCountByChapter($chapterId: UUID!) {
+                   unresolvedCountByChapter(chapterId: $chapterId) {
+                     pageNumber
+                     unresolvedCount
+                   }
+                 }
+               `
+              const unresolvedRes = await graphqlRequest<{ unresolvedCountByChapter: any[] }>(
+                unresolvedQuery,
+                { chapterId: ch.id },
+                true
               )
-              
-              const annotatedPagesList = annoResults
-                .filter(r => r.hasOpen)
-                .map(r => r.pageNumber)
+              const list = unresolvedRes.data?.unresolvedCountByChapter || []
+              const annotatedPagesList = list
+                .filter((r) => r.unresolvedCount > 0)
+                .map((r) => r.pageNumber)
                 .sort((a, b) => a - b)
 
               if (annotatedPagesList.length > 0) {
@@ -385,48 +373,9 @@ export default function MangakaChaptersPage() {
 
     setIsSubmittingWorkflow(true)
     try {
-      let manuscriptId = targetChapter.manuscriptId
-
-      // Bước 1: Nếu chưa có Snapshot (hoặc cần tạo bản snapshot mới từ workspace), gọi Snapshot
-      if (!manuscriptId || targetChapter.status === 'ReturnedForRevision') {
-        const snapshotMutation = `
-          mutation SnapshotChapter($input: SnapshotChapterRequestInput!) {
-            snapshotChapter(input: $input) {
-              succeeded
-              message
-              data {
-                id
-                name
-                version
-              }
-            }
-          }
-        `
-        const snapshotRes = await graphqlRequest<any>(
-          snapshotMutation,
-          {
-            input: {
-              chapterId: targetChapter.id,
-              name: `Bản thảo: Chương ${targetChapter.chapterNumber}`
-            }
-          },
-          true
-        )
-
-        if (snapshotRes.errors) throw new Error(snapshotRes.errors[0].message)
-        const snapshotResult = snapshotRes.data?.snapshotChapter
-        if (!snapshotResult?.succeeded) {
-          throw new Error(snapshotResult?.message || 'Tạo bản đóng gói (Snapshot) thất bại.')
-        }
-
-        manuscriptId = snapshotResult.data.id
-        toast.info(`Đã đóng gói bản thảo thành công (Phiên bản V${snapshotResult.data.version}).`)
-      }
-
-      // Bước 2: Gọi mutation SubmitManuscript nộp lên Tantou Editor
       const submitMutation = `
-        mutation SubmitManuscript($manuscriptId: UUID!, $note: String) {
-          submitManuscript(manuscriptId: $manuscriptId, note: $note) {
+        mutation SubmitChapterForReview($chapterId: UUID!, $note: String) {
+          submitChapterForReview(chapterId: $chapterId, note: $note) {
             id
             title
             status
@@ -436,7 +385,7 @@ export default function MangakaChaptersPage() {
       const submitRes = await graphqlRequest<any>(
         submitMutation,
         {
-          manuscriptId: manuscriptId,
+          chapterId: targetChapter.id,
           note: submittingNote.trim() || null
         },
         true
@@ -444,7 +393,7 @@ export default function MangakaChaptersPage() {
 
       if (submitRes.errors) throw new Error(submitRes.errors[0].message)
 
-      toast.success('Đã gửi nộp duyệt bản thảo thành công lên Tantou Editor phụ trách.')
+      toast.success('Đã nộp duyệt bản thảo thành công.')
       setSubmitDialogOpen(false)
       setTargetChapter(null)
       fetchData()
@@ -457,6 +406,9 @@ export default function MangakaChaptersPage() {
   }
 
   // Filter lists
+  const currentSeries = mySeries.find((s) => s.id === selectedSeriesId)
+  const isSeriesApproved = currentSeries?.status === 'Ongoing'
+
   const inProgressChapters = chapters.filter(ch => ch.status === 'draft' || ch.status === 'ReturnedForRevision')
   const reviewChapters = chapters.filter(ch => ch.status === 'Submitted' || ch.status === 'UnderTantouReview' || ch.status === 'ForwardedToBoard')
   const publishedChapters = chapters.filter(ch => ch.status === 'published' || ch.status === 'Approved' || ch.status === 'Published')
@@ -464,7 +416,7 @@ export default function MangakaChaptersPage() {
   return (
     <AppShell>
       <div className="space-y-6 max-w-6xl mx-auto p-1">
-        
+
         {/* Banner Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-6 rounded-2xl border border-primary/10">
           <div>
@@ -542,7 +494,7 @@ export default function MangakaChaptersPage() {
               ) : (
                 <div className="grid gap-4">
                   {inProgressChapters.map((ch) => (
-                    <ChapterCard key={ch.id} chapter={ch} onSubmit={handleOpenSubmitDialog} />
+                    <ChapterCard key={ch.id} chapter={ch} isSeriesApproved={isSeriesApproved} onSubmit={handleOpenSubmitDialog} />
                   ))}
                 </div>
               )}
@@ -558,7 +510,7 @@ export default function MangakaChaptersPage() {
               ) : (
                 <div className="grid gap-4">
                   {reviewChapters.map((ch) => (
-                    <ChapterCard key={ch.id} chapter={ch} onSubmit={handleOpenSubmitDialog} />
+                    <ChapterCard key={ch.id} chapter={ch} isSeriesApproved={isSeriesApproved} onSubmit={handleOpenSubmitDialog} />
                   ))}
                 </div>
               )}
@@ -574,7 +526,7 @@ export default function MangakaChaptersPage() {
               ) : (
                 <div className="grid gap-4">
                   {publishedChapters.map((ch) => (
-                    <ChapterCard key={ch.id} chapter={ch} onSubmit={handleOpenSubmitDialog} />
+                    <ChapterCard key={ch.id} chapter={ch} isSeriesApproved={isSeriesApproved} onSubmit={handleOpenSubmitDialog} />
                   ))}
                 </div>
               )}
@@ -691,7 +643,7 @@ export default function MangakaChaptersPage() {
   )
 }
 
-function ChapterCard({ chapter, onSubmit }: { chapter: ChapterDto; onSubmit: (ch: ChapterDto) => void }) {
+function ChapterCard({ chapter, isSeriesApproved, onSubmit }: { chapter: ChapterDto; isSeriesApproved: boolean; onSubmit: (ch: ChapterDto) => void }) {
   const isDraft = chapter.status === 'draft'
   const isReturned = chapter.status === 'ReturnedForRevision'
   const isUnderReview = chapter.status === 'Submitted' || chapter.status === 'UnderTantouReview' || chapter.status === 'ForwardedToBoard'
@@ -699,16 +651,16 @@ function ChapterCard({ chapter, onSubmit }: { chapter: ChapterDto; onSubmit: (ch
 
   const progress = isPublished ? 100
     : chapter.status === 'Approved' ? 95
-    : chapter.status === 'ForwardedToBoard' ? 80
-    : chapter.status === 'UnderTantouReview' ? 65
-    : chapter.status === 'Submitted' ? 50
-    : isReturned ? 30
-    : 10
+      : chapter.status === 'ForwardedToBoard' ? 80
+        : chapter.status === 'UnderTantouReview' ? 65
+          : chapter.status === 'Submitted' ? 50
+            : isReturned ? 30
+              : 10
 
   return (
     <Card className="bg-card hover:border-primary/10 hover:shadow-sm transition-all rounded-2xl overflow-hidden border border-border/80">
       <CardContent className="p-6 space-y-4">
-        
+
         {/* Upper Card Row */}
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex gap-4 items-start">
@@ -724,8 +676,8 @@ function ChapterCard({ chapter, onSubmit }: { chapter: ChapterDto; onSubmit: (ch
                 </h3>
                 <Badge variant={
                   isPublished ? 'default' :
-                  isUnderReview ? 'secondary' :
-                  isReturned ? 'destructive' : 'outline'
+                    isUnderReview ? 'secondary' :
+                      isReturned ? 'destructive' : 'outline'
                 } className="font-semibold text-xs py-0.5 rounded-full">
                   {getStatusLabel(chapter.status || 'draft')}
                 </Badge>
@@ -735,7 +687,7 @@ function ChapterCard({ chapter, onSubmit }: { chapter: ChapterDto; onSubmit: (ch
                   </Badge>
                 )}
               </div>
-              
+
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Clock className="h-3.5 w-3.5 text-muted-foreground/60" />
                 <span>Ngày tạo: {new Date(chapter.createdAt).toLocaleString('vi-VN')}</span>
@@ -808,12 +760,12 @@ function ChapterCard({ chapter, onSubmit }: { chapter: ChapterDto; onSubmit: (ch
             </Button>
           </Link>
           {(isDraft || isReturned) && (
-            <Button 
-              className="flex-1 min-w-[140px] rounded-xl bg-primary text-primary-foreground font-bold shadow-sm gap-2"
+            <Button
+              className="flex-1 min-w-[140px] rounded-xl font-bold shadow-sm gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
               onClick={() => onSubmit(chapter)}
             >
               <Send className="h-4 w-4" />
-              Snapshot & Nộp duyệt
+              Nộp duyệt bản thảo
             </Button>
           )}
         </div>

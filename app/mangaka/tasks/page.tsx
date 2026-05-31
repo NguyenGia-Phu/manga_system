@@ -241,31 +241,23 @@ function MangakaTasksContent() {
         setAssistants(assistantsRes.data?.myAssistants || [])
 
         // 3. Find chapter info
-        const seriesQuery = `
-          query GetMySeries($mangakaId: UUID!) {
-            mySeries(mangakaId: $mangakaId) { id title }
+        const chapterQuery = `
+          query GetChapterById($id: UUID!) {
+            chapterById(id: $id) {
+              id
+              title
+              chapterNumber
+              seriesId
+            }
           }
         `
-        const seriesRes = await graphqlRequest<{ mySeries: any[] }>(seriesQuery, { mangakaId: currentUser.id }, true)
-        const seriesList = seriesRes.data?.mySeries || []
-
-        let foundChapter: ChapterInfo | null = null
-        const chapQ = `
-          query GetChaptersBySeries($seriesId: UUID!) {
-            chaptersBySeries(seriesId: $seriesId) { id title chapterNumber seriesId }
-          }
-        `
-        const chapResults = await Promise.all(
-          seriesList.map(s => 
-            graphqlRequest<{ chaptersBySeries: ChapterInfo[] }>(chapQ, { seriesId: s.id }, true)
-              .then(res => res.data?.chaptersBySeries || [])
-              .catch(() => [] as ChapterInfo[])
-          )
+        const chapterRes = await graphqlRequest<{ chapterById: ChapterInfo | null }>(
+          chapterQuery,
+          { id: chapterId },
+          true
         )
-        for (const chapters of chapResults) {
-          const match = chapters.find(ch => ch.id === chapterId)
-          if (match) { foundChapter = match; break }
-        }
+        if (chapterRes.errors) throw new Error(chapterRes.errors[0].message)
+        const foundChapter = chapterRes.data?.chapterById
         setChapter(foundChapter || { id: chapterId, title: 'Chương truyện', chapterNumber: 0, seriesId: '' })
 
         // Select first page
@@ -314,13 +306,10 @@ function MangakaTasksContent() {
       const pageRegions = regionsRes.data?.regionsByPage || []
       setRegions(pageRegions)
 
-      // 2. Fetch tasks for each assistant and collect those linked to this page's regions
-      const regionIds = new Set(pageRegions.map(r => r.id))
-      const allTasks: TaskDto[] = []
-
+      // 2. Fetch tasks for this page
       const tasksQuery = `
-        query GetTasksByUser($userId: UUID!) {
-          tasksByUser(userId: $userId) {
+        query GetTasksByPage($pageId: UUID!) {
+          tasksByPage(pageId: $pageId) {
             id
             title
             description
@@ -341,29 +330,13 @@ function MangakaTasksContent() {
           }
         }
       `
-      const tasksResults = await Promise.all(
-        assistants.map(assistant =>
-          graphqlRequest<{ tasksByUser: TaskDto[] }>(
-            tasksQuery,
-            { userId: assistant.id },
-            true
-          ).then(res => res.data?.tasksByUser || [])
-           .catch(() => [] as TaskDto[])
-        )
+      const tasksRes = await graphqlRequest<{ tasksByPage: TaskDto[] }>(
+        tasksQuery,
+        { pageId },
+        true
       )
-
-      for (const tasks of tasksResults) {
-        const filtered = tasks.filter(t => {
-          if (t.regionId && regionIds.has(t.regionId)) return true
-          if (t.region && t.region.pageId === pageId) return true
-          return false
-        })
-        allTasks.push(...filtered)
-      }
-
-      // Deduplicate by id
-      const uniqueTasks = Array.from(new Map(allTasks.map(t => [t.id, t])).values())
-      setTasks(uniqueTasks)
+      if (tasksRes.errors) throw new Error(tasksRes.errors[0].message)
+      setTasks(tasksRes.data?.tasksByPage || [])
     } catch (err: any) {
       console.error(err)
       toast.error('Lỗi nạp dữ liệu công việc: ' + err.message)

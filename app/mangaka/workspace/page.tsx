@@ -134,57 +134,36 @@ function MangakaWorkspaceContent() {
           setSelectedPageIndex(0)
         }
 
-        const storedUser = localStorage.getItem('currentUser')
-        if (storedUser) {
-          const user = JSON.parse(storedUser)
-          const seriesQuery = `
-            query GetMySeries($mangakaId: UUID!) {
-              mySeries(mangakaId: $mangakaId) {
-                id
-                title
-              }
-            }
-          `
-          const seriesRes = await graphqlRequest<{ mySeries: any[] }>(seriesQuery, { mangakaId: user.id }, true)
-          const seriesList = seriesRes.data?.mySeries || []
-
-          let foundChapter: ChapterDetail | null = null
-          for (const s of seriesList) {
-            const chaptersQuery = `
-              query GetChaptersBySeries($seriesId: UUID!) {
-                chaptersBySeries(seriesId: $seriesId) {
-                  id
-                  title
-                  chapterNumber
-                  isPublished
-                  seriesId
-                }
-              }
-            `
-            const chaptersRes = await graphqlRequest<{ chaptersBySeries: ChapterDetail[] }>(
-              chaptersQuery,
-              { seriesId: s.id },
-              true
-            )
-            const list = chaptersRes.data?.chaptersBySeries || []
-            const matched = list.find(ch => ch.id === chapterId)
-            if (matched) {
-              foundChapter = matched
-              break
+        const chapterQuery = `
+          query GetChapterById($id: UUID!) {
+            chapterById(id: $id) {
+              id
+              title
+              chapterNumber
+              isPublished
+              seriesId
             }
           }
+        `
+        const chapterRes = await graphqlRequest<{ chapterById: ChapterDetail | null }>(
+          chapterQuery,
+          { id: chapterId },
+          true
+        )
 
-          if (foundChapter) {
-            setChapter(foundChapter)
-          } else {
-            setChapter({
-              id: chapterId,
-              title: 'Bản vẽ chương truyện',
-              chapterNumber: 1,
-              isPublished: false,
-              seriesId: ''
-            })
-          }
+        if (chapterRes.errors) throw new Error(chapterRes.errors[0].message)
+        const foundChapter = chapterRes.data?.chapterById
+
+        if (foundChapter) {
+          setChapter(foundChapter)
+        } else {
+          setChapter({
+            id: chapterId,
+            title: 'Bản vẽ chương truyện',
+            chapterNumber: 1,
+            isPublished: false,
+            seriesId: ''
+          })
         }
       } catch (err: any) {
         console.error(err)
