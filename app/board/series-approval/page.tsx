@@ -38,6 +38,7 @@ interface SeriesVote {
 
 interface SeriesPending {
   id: string
+  seriesId: string
   title: string
   alternativeTitle: string | null
   description: string
@@ -134,37 +135,47 @@ export default function SeriesApprovalPage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // Fetch Pending Series
+      // Fetch Pending Submissions
       const seriesQuery = `
-        query GetPendingSeries {
-          pendingSeries {
+        query GetSubmissionInbox {
+          submissionInbox(filter: FORWARDED_TO_BOARD) {
             id
-            title
-            alternativeTitle
-            description
-            coverImageUrl
+            seriesId
+            seriesTitle
+            seriesDescription
+            seriesCoverImageUrl
+            mangakaId
+            mangakaName
+            submittedAt
             status
-            authorId
-            authorName
-            createdAt
             votes {
               id
-              seriesId
               boardMemberId
               boardMemberName
               voteType
-              proposedTantouId
-              comment
-              createdAt
             }
           }
         }
       `
-      const seriesRes = await graphqlRequest<{ pendingSeries: SeriesPending[] }>(seriesQuery, {}, true)
+      const seriesRes = await graphqlRequest<{ submissionInbox: any[] }>(seriesQuery, {}, true)
       if (seriesRes.errors) {
         throw new Error(seriesRes.errors[0].message)
       }
-      setPendingSeries(seriesRes.data?.pendingSeries || [])
+      
+      const mapped = (seriesRes.data?.submissionInbox || []).map(sub => ({
+        id: sub.id,
+        seriesId: sub.seriesId,
+        title: sub.seriesTitle,
+        alternativeTitle: null,
+        description: sub.seriesDescription || 'Không có mô tả',
+        coverImageUrl: sub.seriesCoverImageUrl,
+        status: sub.status,
+        authorId: sub.mangakaId || '',
+        authorName: sub.mangakaName || 'Unknown',
+        createdAt: sub.submittedAt,
+        votes: sub.votes || []
+      }))
+      setPendingSeries(mapped)
 
       // Fetch Users to filter Editors
       const usersQuery = `
@@ -233,23 +244,18 @@ export default function SeriesApprovalPage() {
     setSubmitting(true)
     try {
       const mutation = `
-        mutation VoteSeries($seriesId: UUID!, $vote: VoteType!, $proposedTantouId: UUID, $comment: String) {
-          voteSeries(seriesId: $seriesId, vote: $vote, proposedTantouId: $proposedTantouId, comment: $comment) {
-            succeeded
-            message
-            data {
-              id
-              title
-              status
-            }
+        mutation FinalizeBoardDecision($submissionId: UUID!, $decision: WorkflowStatus!, $comment: String!, $assignTantouId: UUID) {
+          finalizeBoardDecision(submissionId: $submissionId, decision: $decision, comment: $comment, assignTantouId: $assignTantouId) {
+            id
+            status
           }
         }
       `
       const variables = {
-        seriesId: selectedSeries.id,
-        vote: voteDecision,
-        proposedTantouId: voteDecision === 'APPROVE' ? selectedEditorId : null,
-        comment: comment || null
+        submissionId: selectedSeries.id,
+        decision: voteDecision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+        comment: comment || '',
+        assignTantouId: voteDecision === 'APPROVE' ? (selectedEditorId || null) : null
       }
 
       const res = await graphqlRequest<any>(mutation, variables, true)
@@ -258,9 +264,9 @@ export default function SeriesApprovalPage() {
         throw new Error(res.errors[0].message)
       }
 
-      const result = res.data?.voteSeries
-      if (result?.succeeded) {
-        toast.success(result.message || 'Xét duyệt tác phẩm thành công.')
+      const result = res.data?.finalizeBoardDecision
+      if (result) {
+        toast.success('Xét duyệt tác phẩm thành công.')
         setApprovalDialogOpen(false)
         setSelectedSeries(null)
         // Refresh list
@@ -404,7 +410,7 @@ export default function SeriesApprovalPage() {
                     onClick={() => {
                       setSelectedSeriesForChapters(series)
                       setChaptersDialogOpen(true)
-                      fetchChapters(series.id)
+                      fetchChapters(series.seriesId)
                     }}
                   >
                     <Eye className="h-4 w-4" />
@@ -580,80 +586,104 @@ export default function SeriesApprovalPage() {
 
         {/* Chapters & Manuscript Pages Modal */}
         <Dialog open={chaptersDialogOpen} onOpenChange={setChaptersDialogOpen}>
-          <DialogContent className="max-w-4xl w-[90vw] rounded-2xl border-border bg-card p-6 max-h-[85vh] flex flex-col">
-            <DialogHeader className="pb-2 border-b border-border/60">
-              <DialogTitle className="text-xl font-bold flex items-center gap-2 text-foreground">
-                <BookOpen className="h-5 w-5 text-primary" />
-                Bản Thảo Chương Truyện: {selectedSeriesForChapters?.title}
+          <DialogContent className="max-w-[95vw] lg:max-w-7xl w-full rounded-2xl border-border bg-card p-0 max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            <DialogHeader className="p-6 pb-4 border-b border-border/60 bg-secondary/10">
+              <DialogTitle className="text-2xl font-black flex items-center gap-3 text-foreground tracking-tight">
+                <BookOpen className="h-6 w-6 text-primary" />
+                Bản Thảo Chương Truyện: <span className="text-primary/90">{selectedSeriesForChapters?.title}</span>
               </DialogTitle>
-              <DialogDescription>
-                Xem các chương và trang vẽ phác thảo của tác phẩm để hội đồng có cơ sở đánh giá chất lượng.
+              <DialogDescription className="text-sm mt-1 text-muted-foreground/80">
+                Xem chi tiết các chương và trang vẽ phác thảo của tác phẩm để đánh giá chất lượng toàn diện.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-4 overflow-hidden flex-1 min-h-0">
+            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-0 overflow-hidden flex-1 min-h-0 bg-background">
               {/* Left Column: Chapters list */}
-              <div className="md:col-span-1 border-r border-border/60 pr-4 overflow-y-auto space-y-2 max-h-[50vh] md:max-h-none">
-                <h4 className="text-sm font-bold text-foreground mb-3">Danh sách chương ({chapters.length})</h4>
+              <div className="md:col-span-1 lg:col-span-1 border-r border-border/60 p-4 bg-secondary/5 overflow-y-auto space-y-3 max-h-[40vh] md:max-h-none">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                    Danh sách chương
+                  </h4>
+                  <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20">{chapters.length}</Badge>
+                </div>
                 
                 {chaptersLoading ? (
-                  <div className="flex justify-center items-center py-8">
-                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                  <div className="flex justify-center items-center py-12">
+                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary/30 border-t-primary"></div>
                   </div>
                 ) : chapters.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic text-center py-8">Bộ truyện này chưa được tạo chương nào.</p>
+                  <div className="flex flex-col items-center text-center p-4 bg-background rounded-xl border border-dashed border-border">
+                    <BookOpen className="h-6 w-6 text-muted-foreground/50 mb-2" />
+                    <p className="text-xs text-muted-foreground italic">Bộ truyện này chưa được tạo chương nào.</p>
+                  </div>
                 ) : (
-                  chapters.map((ch) => (
-                    <button
-                      key={ch.id}
-                      onClick={() => {
-                        setSelectedChapterForPages(ch)
-                        fetchPages(ch.id)
-                      }}
-                      className={`w-full flex flex-col text-left p-3 rounded-xl border transition-all ${
-                        selectedChapterForPages?.id === ch.id
-                          ? 'bg-primary/10 border-primary text-primary shadow-sm'
-                          : 'bg-secondary/20 hover:bg-secondary/40 border-transparent text-muted-foreground'
-                      }`}
-                    >
-                      <span className="font-bold text-sm text-foreground">Chương {ch.chapterNumber}</span>
-                      <span className="text-xs mt-0.5 line-clamp-1">{ch.title}</span>
-                    </button>
-                  ))
+                  <div className="space-y-2">
+                    {chapters.map((ch) => (
+                      <button
+                        key={ch.id}
+                        onClick={() => {
+                          setSelectedChapterForPages(ch)
+                          fetchPages(ch.id)
+                        }}
+                        className={`w-full flex flex-col text-left p-3.5 rounded-xl border-2 transition-all duration-200 ${
+                          selectedChapterForPages?.id === ch.id
+                            ? 'bg-primary/5 border-primary text-primary shadow-sm scale-[1.02]'
+                            : 'bg-card hover:bg-secondary/40 border-transparent hover:border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        <span className="font-bold text-sm">Chương {ch.chapterNumber}</span>
+                        <span className="text-xs mt-1 line-clamp-2 opacity-90 leading-relaxed">{ch.title}</span>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
 
               {/* Right Column: Page Gallery */}
-              <div className="md:col-span-2 overflow-y-auto flex flex-col max-h-[50vh] md:max-h-none min-h-0 flex-1">
+              <div className="md:col-span-3 lg:col-span-4 overflow-y-auto flex flex-col max-h-[60vh] md:max-h-none min-h-0 flex-1 bg-secondary/5 p-6">
                 {selectedChapterForPages ? (
-                  <div className="space-y-4 flex flex-col flex-1 min-h-0">
-                    <div className="flex justify-between items-center pb-2 border-b border-border/40">
-                      <h4 className="text-sm font-bold text-foreground">
-                        Bản vẽ: Chương {selectedChapterForPages.chapterNumber} - {selectedChapterForPages.title}
+                  <div className="space-y-6 flex flex-col flex-1 min-h-0">
+                    <div className="flex justify-between items-center pb-3 border-b border-border/40">
+                      <h4 className="text-lg font-bold text-foreground flex items-center gap-2">
+                        Bản vẽ: Chương {selectedChapterForPages.chapterNumber} <span className="text-muted-foreground font-normal">- {selectedChapterForPages.title}</span>
                       </h4>
-                      <Badge variant="secondary" className="rounded-full">{pages.length} trang</Badge>
+                      <Badge className="rounded-full px-4 py-1 text-sm bg-primary text-primary-foreground">{pages.length} trang</Badge>
                     </div>
 
                     {pagesLoading ? (
-                      <div className="flex justify-center items-center py-16 flex-1">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                      <div className="flex justify-center items-center py-20 flex-1">
+                        <div className="flex flex-col items-center gap-4">
+                          <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/30 border-t-primary"></div>
+                          <span className="text-sm font-medium text-muted-foreground animate-pulse">Đang tải bản thảo...</span>
+                        </div>
                       </div>
                     ) : pages.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-16 text-center bg-secondary/10 rounded-xl border border-dashed border-border/80 flex-1">
-                        <AlertCircle className="h-8 w-8 text-muted-foreground mb-2 opacity-50" />
-                        <p className="text-xs text-muted-foreground font-semibold">Chương này chưa tải lên trang bản vẽ nào.</p>
+                      <div className="flex flex-col items-center justify-center py-20 text-center bg-card rounded-2xl border-2 border-dashed border-border/80 flex-1 shadow-sm">
+                        <div className="bg-secondary/50 p-4 rounded-full mb-4">
+                          <AlertCircle className="h-10 w-10 text-muted-foreground opacity-60" />
+                        </div>
+                        <p className="text-sm text-foreground font-semibold mb-1">Chương này trống</p>
+                        <p className="text-xs text-muted-foreground">Chưa có trang bản vẽ nào được tải lên cho chương này.</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto pr-1 flex-1">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-6 overflow-y-auto pb-4 flex-1">
                         {pages.map((p) => (
-                          <div key={p.id} className="relative rounded-lg border border-border bg-slate-950/40 aspect-[3/4] overflow-hidden group">
-                            <img 
-                              src={p.imageUrl} 
-                              alt={`Trang ${p.pageNumber}`} 
-                              className="w-full h-full object-contain"
-                            />
-                            <div className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm p-1 text-center text-[10px] font-bold border-t border-border">
-                              Trang {p.pageNumber}
+                          <div key={p.id} className="relative rounded-xl border border-border/50 bg-card shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col aspect-[3/4.5]">
+                            <div className="flex-1 overflow-hidden bg-slate-900/5 flex items-center justify-center relative p-1">
+                              <img 
+                                src={p.imageUrl} 
+                                alt={`Trang ${p.pageNumber}`} 
+                                className="w-full h-full object-contain group-hover:scale-[1.02] transition-transform duration-500 rounded-lg"
+                              />
+                              {/* Overlay for view action */}
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[1px]">
+                                <Button variant="secondary" size="sm" className="rounded-full shadow-lg gap-2 font-bold" onClick={() => window.open(p.imageUrl, '_blank')}>
+                                  <Eye className="h-4 w-4" /> Xem ảnh lớn
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="p-3 text-center bg-card border-t border-border/50">
+                              <span className="text-xs font-bold text-foreground">Trang {p.pageNumber}</span>
                             </div>
                           </div>
                         ))}
@@ -661,17 +691,24 @@ export default function SeriesApprovalPage() {
                     )}
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-20 text-center bg-secondary/5 rounded-xl border border-dashed border-border flex-1">
-                    <BookOpen className="h-10 w-10 text-muted-foreground mb-3 opacity-40 animate-pulse" />
-                    <p className="text-sm text-muted-foreground font-semibold">Vui lòng chọn một chương ở bên trái để xem chi tiết bản vẽ.</p>
+                  <div className="flex flex-col items-center justify-center py-24 text-center bg-card rounded-2xl border border-border shadow-sm flex-1">
+                    <div className="bg-primary/5 p-6 rounded-full mb-6">
+                      <BookOpen className="h-12 w-12 text-primary/40 animate-pulse" />
+                    </div>
+                    <h3 className="text-lg font-bold text-foreground mb-2">Chưa chọn chương</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm">Vui lòng chọn một chương ở menu bên trái để xem trước chi tiết các trang bản thảo bên trong.</p>
                   </div>
                 )}
               </div>
             </div>
 
-            <DialogFooter className="border-t border-border/60 pt-4 flex justify-end">
-              <Button className="rounded-xl" onClick={() => setChaptersDialogOpen(false)}>
-                Đóng
+            <DialogFooter className="border-t border-border/60 bg-secondary/10 p-4 px-6 flex justify-end">
+              <Button 
+                variant="outline"
+                className="rounded-xl px-8 font-bold border-border/80 hover:bg-secondary/60 transition-colors" 
+                onClick={() => setChaptersDialogOpen(false)}
+              >
+                Đóng cửa sổ
               </Button>
             </DialogFooter>
           </DialogContent>

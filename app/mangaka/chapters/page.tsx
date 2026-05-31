@@ -187,8 +187,8 @@ export default function MangakaChaptersPage() {
       `
       // Query Submissions
       const submissionsQuery = `
-        query GetMySubmissions {
-          mySubmissions {
+        query GetMySubmissions($seriesId: UUID) {
+          mySubmissions(seriesId: $seriesId) {
             id
             title
             note
@@ -224,7 +224,7 @@ export default function MangakaChaptersPage() {
         ),
         graphqlRequest<{ mySubmissions: Submission[] }>(
           submissionsQuery,
-          {},
+          { seriesId: selectedSeriesId },
           true
         )
       ])
@@ -260,9 +260,9 @@ export default function MangakaChaptersPage() {
               .find((t) => t.toStatus === 'ReturnedForRevision')
             mapped.feedback = revisionTransition?.comment || 'Yêu cầu chỉnh sửa lại bản thảo.'
 
-             // Lấy thông tin các trang có ghi chú chưa được giải quyết (status === 'Open') - SINGLE QUERY
-             try {
-               const unresolvedQuery = `
+            // Lấy thông tin các trang có ghi chú chưa được giải quyết (status === 'Open') - SINGLE QUERY
+            try {
+              const unresolvedQuery = `
                  query GetUnresolvedCountByChapter($chapterId: UUID!) {
                    unresolvedCountByChapter(chapterId: $chapterId) {
                      pageNumber
@@ -270,24 +270,24 @@ export default function MangakaChaptersPage() {
                    }
                  }
                `
-               const unresolvedRes = await graphqlRequest<{ unresolvedCountByChapter: any[] }>(
-                 unresolvedQuery,
-                 { chapterId: ch.id },
-                 true
-               )
-               const list = unresolvedRes.data?.unresolvedCountByChapter || []
-               const annotatedPagesList = list
-                 .filter((r) => r.unresolvedCount > 0)
-                 .map((r) => r.pageNumber)
-                 .sort((a, b) => a - b)
+              const unresolvedRes = await graphqlRequest<{ unresolvedCountByChapter: any[] }>(
+                unresolvedQuery,
+                { chapterId: ch.id },
+                true
+              )
+              const list = unresolvedRes.data?.unresolvedCountByChapter || []
+              const annotatedPagesList = list
+                .filter((r) => r.unresolvedCount > 0)
+                .map((r) => r.pageNumber)
+                .sort((a, b) => a - b)
 
-               if (annotatedPagesList.length > 0) {
-                 mapped.annotatedPagesText = `Cần sửa đổi ở: Trang ` + annotatedPagesList.join(', Trang ')
-               }
-             } catch (err) {
-               console.error('Error fetching annotations for chapter pages:', err)
-             }
-           }
+              if (annotatedPagesList.length > 0) {
+                mapped.annotatedPagesText = `Cần sửa đổi ở: Trang ` + annotatedPagesList.join(', Trang ')
+              }
+            } catch (err) {
+              console.error('Error fetching annotations for chapter pages:', err)
+            }
+          }
         }
 
         if (ch.isPublished) {
@@ -373,48 +373,9 @@ export default function MangakaChaptersPage() {
 
     setIsSubmittingWorkflow(true)
     try {
-      let manuscriptId = targetChapter.manuscriptId
-
-      // Bước 1: Nếu chưa có Snapshot (hoặc cần tạo bản snapshot mới từ workspace), gọi Snapshot
-      if (!manuscriptId || targetChapter.status === 'ReturnedForRevision') {
-        const snapshotMutation = `
-          mutation SnapshotChapter($input: SnapshotChapterRequestInput!) {
-            snapshotChapter(input: $input) {
-              succeeded
-              message
-              data {
-                id
-                name
-                version
-              }
-            }
-          }
-        `
-        const snapshotRes = await graphqlRequest<any>(
-          snapshotMutation,
-          {
-            input: {
-              chapterId: targetChapter.id,
-              name: `Bản thảo: Chương ${targetChapter.chapterNumber}`
-            }
-          },
-          true
-        )
-
-        if (snapshotRes.errors) throw new Error(snapshotRes.errors[0].message)
-        const snapshotResult = snapshotRes.data?.snapshotChapter
-        if (!snapshotResult?.succeeded) {
-          throw new Error(snapshotResult?.message || 'Tạo bản đóng gói (Snapshot) thất bại.')
-        }
-
-        manuscriptId = snapshotResult.data.id
-        toast.info(`Đã đóng gói bản thảo thành công (Phiên bản V${snapshotResult.data.version}).`)
-      }
-
-      // Bước 2: Gọi mutation SubmitManuscript nộp lên Tantou Editor
       const submitMutation = `
-        mutation SubmitManuscript($manuscriptId: UUID!, $note: String) {
-          submitManuscript(manuscriptId: $manuscriptId, note: $note) {
+        mutation SubmitChapterForReview($chapterId: UUID!, $note: String) {
+          submitChapterForReview(chapterId: $chapterId, note: $note) {
             id
             title
             status
@@ -424,7 +385,7 @@ export default function MangakaChaptersPage() {
       const submitRes = await graphqlRequest<any>(
         submitMutation,
         {
-          manuscriptId: manuscriptId,
+          chapterId: targetChapter.id,
           note: submittingNote.trim() || null
         },
         true
@@ -432,7 +393,7 @@ export default function MangakaChaptersPage() {
 
       if (submitRes.errors) throw new Error(submitRes.errors[0].message)
 
-      toast.success('Đã gửi nộp duyệt bản thảo thành công lên Tantou Editor phụ trách.')
+      toast.success('Đã nộp duyệt bản thảo thành công.')
       setSubmitDialogOpen(false)
       setTargetChapter(null)
       fetchData()
@@ -455,7 +416,7 @@ export default function MangakaChaptersPage() {
   return (
     <AppShell>
       <div className="space-y-6 max-w-6xl mx-auto p-1">
-        
+
         {/* Banner Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-6 rounded-2xl border border-primary/10">
           <div>
@@ -523,7 +484,7 @@ export default function MangakaChaptersPage() {
               </TabsTrigger>
             </TabsList>
 
-             {/* Tab: In Progress */}
+            {/* Tab: In Progress */}
             <TabsContent value="in_progress" className="space-y-4">
               {inProgressChapters.length === 0 ? (
                 <Card className="border-dashed bg-card flex flex-col items-center justify-center py-16 text-center rounded-xl">
@@ -690,16 +651,16 @@ function ChapterCard({ chapter, isSeriesApproved, onSubmit }: { chapter: Chapter
 
   const progress = isPublished ? 100
     : chapter.status === 'Approved' ? 95
-    : chapter.status === 'ForwardedToBoard' ? 80
-    : chapter.status === 'UnderTantouReview' ? 65
-    : chapter.status === 'Submitted' ? 50
-    : isReturned ? 30
-    : 10
+      : chapter.status === 'ForwardedToBoard' ? 80
+        : chapter.status === 'UnderTantouReview' ? 65
+          : chapter.status === 'Submitted' ? 50
+            : isReturned ? 30
+              : 10
 
   return (
     <Card className="bg-card hover:border-primary/10 hover:shadow-sm transition-all rounded-2xl overflow-hidden border border-border/80">
       <CardContent className="p-6 space-y-4">
-        
+
         {/* Upper Card Row */}
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex gap-4 items-start">
@@ -715,8 +676,8 @@ function ChapterCard({ chapter, isSeriesApproved, onSubmit }: { chapter: Chapter
                 </h3>
                 <Badge variant={
                   isPublished ? 'default' :
-                  isUnderReview ? 'secondary' :
-                  isReturned ? 'destructive' : 'outline'
+                    isUnderReview ? 'secondary' :
+                      isReturned ? 'destructive' : 'outline'
                 } className="font-semibold text-xs py-0.5 rounded-full">
                   {getStatusLabel(chapter.status || 'draft')}
                 </Badge>
@@ -726,7 +687,7 @@ function ChapterCard({ chapter, isSeriesApproved, onSubmit }: { chapter: Chapter
                   </Badge>
                 )}
               </div>
-              
+
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Clock className="h-3.5 w-3.5 text-muted-foreground/60" />
                 <span>Ngày tạo: {new Date(chapter.createdAt).toLocaleString('vi-VN')}</span>
@@ -799,23 +760,12 @@ function ChapterCard({ chapter, isSeriesApproved, onSubmit }: { chapter: Chapter
             </Button>
           </Link>
           {(isDraft || isReturned) && (
-            <Button 
-              className={`flex-1 min-w-[140px] rounded-xl font-bold shadow-sm gap-2 ${
-                !isSeriesApproved 
-                  ? 'bg-muted text-muted-foreground border border-border cursor-not-allowed hover:bg-muted hover:text-muted-foreground opacity-80' 
-                  : 'bg-primary text-primary-foreground'
-              }`}
-              onClick={() => {
-                if (!isSeriesApproved) {
-                  toast.warning('Bộ truyện chưa được phê duyệt hoặc chưa được gán Biên tập viên phụ trách (Tantou). Vui lòng chờ Hội đồng duyệt và gán BTV.')
-                  return
-                }
-                onSubmit(chapter)
-              }}
-              disabled={!isSeriesApproved}
+            <Button
+              className="flex-1 min-w-[140px] rounded-xl font-bold shadow-sm gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => onSubmit(chapter)}
             >
               <Send className="h-4 w-4" />
-              {!isSeriesApproved ? 'Chưa gán BTV (Chờ duyệt)' : 'Snapshot & Nộp duyệt'}
+              Nộp duyệt bản thảo
             </Button>
           )}
         </div>
