@@ -100,10 +100,10 @@ export default function MangakaSeriesPage() {
   const isUuid = (value: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
-  const fetchSeries = useCallback(async (mangakaId: string) => {
+  const fetchSeries = useCallback(async () => {
     const query = `
-      query GetMySeries($mangakaId: UUID!) {
-        mySeries(mangakaId: $mangakaId) {
+      query GetMySeries {
+        mySeries {
           id
           title
           alternativeTitle
@@ -118,9 +118,7 @@ export default function MangakaSeriesPage() {
       }
     `
     try {
-      const res = await graphqlRequest<{ mySeries: any[] }>(query, {
-        mangakaId
-      }, true)
+      const res = await graphqlRequest<{ mySeries: any[] }>(query, {}, true)
 
       const backendSeries = (res.data?.mySeries || []).map((s: any) => ({
         ...s,
@@ -145,7 +143,7 @@ export default function MangakaSeriesPage() {
 
     const user = getStoredUser()
     if (user?.id) {
-      fetchSeries(user.id)
+      fetchSeries()
     }
   }, [fetchSeries])
 
@@ -173,7 +171,7 @@ export default function MangakaSeriesPage() {
 
       const created = result?.data || result?.Data
       if (created && user?.id) {
-        await fetchSeries(user.id)
+        await fetchSeries()
       }
 
       setIsCreateDialogOpen(false)

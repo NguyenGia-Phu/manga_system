@@ -11,6 +11,7 @@ import {
   Users,
   ArrowRight,
   BookOpen,
+  Clock,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -60,8 +61,8 @@ export default function EditorDashboard() {
 
     const fetchSeries = async () => {
       const query = `
-        query GetMySeries($mangakaId: UUID!) {
-          mySeries(mangakaId: $mangakaId) {
+        query GetMySeries {
+          mySeries {
             id
             title
             alternativeTitle
@@ -74,7 +75,7 @@ export default function EditorDashboard() {
       try {
         const res = await graphqlRequest<{ mySeries: SeriesSummary[] }>(
           query,
-          { mangakaId: user.id },
+          {},
           true
         )
 

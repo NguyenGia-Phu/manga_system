@@ -79,22 +79,9 @@ export default function MangakaReviewPage() {
 
   const fetchSubmissions = async () => {
     try {
-      const assistantsQuery = `
-        query GetMyAssistants {
-          myAssistants {
-            id
-            username
-            email
-          }
-        }
-      `
-      const assistantsRes = await graphqlRequest<{ myAssistants: AssistantDto[] }>(assistantsQuery, {}, true)
-      if (assistantsRes.errors) throw new Error(assistantsRes.errors[0].message)
-      const assistants = assistantsRes.data?.myAssistants || []
-
       const tasksQuery = `
-        query GetTasksByUser($userId: UUID!) {
-          tasksByUser(userId: $userId) {
+        query GetTasksByMangaka {
+          tasksByMangaka {
             id
             title
             description
@@ -111,24 +98,9 @@ export default function MangakaReviewPage() {
           }
         }
       `
-
-      const allTasks: TaskDto[] = []
-      // Fetch tasks for all assistants in parallel instead of sequential
-      const tasksResults = await Promise.all(
-        assistants.map(assistant =>
-          graphqlRequest<{ tasksByUser: TaskDto[] }>(
-            tasksQuery,
-            { userId: assistant.id },
-            true
-          ).then(res => {
-            if (res.errors) throw new Error(res.errors[0].message)
-            return res.data?.tasksByUser || []
-          }).catch(() => [] as TaskDto[])
-        )
-      )
-      for (const tasks of tasksResults) {
-        allTasks.push(...tasks)
-      }
+      const tasksRes = await graphqlRequest<{ tasksByMangaka: TaskDto[] }>(tasksQuery, {}, true)
+      if (tasksRes.errors) throw new Error(tasksRes.errors[0].message)
+      const allTasks = tasksRes.data?.tasksByMangaka || []
 
       const uniqueTasks = Array.from(new Map(allTasks.map(t => [t.id, t])).values())
       const filtered = uniqueTasks.filter(t => t.status === 'Review' || t.status === 'Done' || t.status === 'NeedsRevision')

@@ -37,8 +37,8 @@ export default function MangakaDashboard() {
 
       const fetchSeries = async () => {
         const query = `
-          query GetMySeries($mangakaId: UUID!) {
-            mySeries(mangakaId: $mangakaId) {
+          query GetMySeries {
+            mySeries {
               id
               title
               alternativeTitle
@@ -53,9 +53,7 @@ export default function MangakaDashboard() {
           }
         `
         try {
-          const res = await graphqlRequest<{ mySeries: any[] }>(query, {
-            mangakaId: user.id
-          }, true)
+          const res = await graphqlRequest<{ mySeries: any[] }>(query, {}, true)
 
           let backendSeries: any[] = []
           if (res.data?.mySeries) {
