@@ -57,6 +57,7 @@ interface SubmissionItem {
   mangakaName: string
   assignedTantouId: string | null
   assignedTantouName: string | null
+  seriesStatus: string | null
   submittedAt: string
   resolvedAt: string | null
   manuscripts: Array<{
@@ -141,6 +142,8 @@ function EditorReviewContent() {
   const [returnFeedback, setReturnFeedback] = useState('')
   const [forwardDialogOpen, setForwardDialogOpen] = useState(false)
   const [forwardComment, setForwardComment] = useState('')
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false)
+  const [approveComment, setApproveComment] = useState('')
   const [isSubmittingAction, setIsSubmittingAction] = useState(false)
 
   const [zoom, setZoom] = useState(100)
@@ -173,6 +176,7 @@ function EditorReviewContent() {
             mangakaName
             assignedTantouId
             assignedTantouName
+            seriesStatus
             submittedAt
             resolvedAt
             manuscripts {
@@ -215,18 +219,18 @@ function EditorReviewContent() {
     try {
       const query = `
         query GetUnresolvedCountByChapter($chapterId: UUID!) {
-          getUnresolvedCountByChapter(chapterId: $chapterId) {
+          unresolvedCountByChapter(chapterId: $chapterId) {
             pageId
             pageNumber
             unresolvedCount
           }
         }
       `
-      const res = await graphqlRequest<{ getUnresolvedCountByChapter: Array<{ pageId: string, unresolvedCount: number }> }>(query, { chapterId }, true)
+      const res = await graphqlRequest<{ unresolvedCountByChapter: Array<{ pageId: string, unresolvedCount: number }> }>(query, { chapterId }, true)
       if (res.errors) throw new Error(res.errors[0].message)
 
       const countsMap: Record<string, number> = {}
-      ;(res.data?.getUnresolvedCountByChapter || []).forEach((item) => {
+      ;(res.data?.unresolvedCountByChapter || []).forEach((item) => {
         countsMap[item.pageId] = item.unresolvedCount
       })
       setUnresolvedCounts(countsMap)
@@ -527,6 +531,39 @@ function EditorReviewContent() {
     }
   }
 
+  const handleApproveSubmission = async () => {
+    if (!submission) return
+    setIsSubmittingAction(true)
+    try {
+      const mutation = `
+        mutation ApproveSubmission($submissionId: UUID!, $comment: String!) {
+          approveSubmission(submissionId: $submissionId, comment: $comment) {
+            id
+            status
+          }
+        }
+      `
+      const res = await graphqlRequest<any>(
+        mutation,
+        {
+          submissionId: submission.id,
+          comment: approveComment.trim() || 'Tantou duyệt xuất bản bản thảo.'
+        },
+        true
+      )
+      if (res.errors) throw new Error(res.errors[0].message)
+
+      toast.success('Phê duyệt bản thảo thành công!')
+      setApproveDialogOpen(false)
+      router.push('/editor/manuscripts')
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Lỗi phê duyệt bản thảo: ' + err.message)
+    } finally {
+      setIsSubmittingAction(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[500px] gap-4">
@@ -596,16 +633,29 @@ function EditorReviewContent() {
                 <XCircle className="h-4 w-4" />
                 Yêu cầu chỉnh sửa
               </Button>
-              <Button 
-                className="rounded-xl font-bold bg-success text-success-foreground gap-2 hover:bg-success/90"
-                onClick={() => {
-                  setForwardComment('')
-                  setForwardDialogOpen(true)
-                }}
-              >
-                <ArrowUpRight className="h-4 w-4" />
-                Gửi lên Hội đồng Biên tập
-              </Button>
+              {submission.seriesStatus === 'Draft' ? (
+                <Button 
+                  className="rounded-xl font-bold bg-success text-success-foreground gap-2 hover:bg-success/90"
+                  onClick={() => {
+                    setForwardComment('')
+                    setForwardDialogOpen(true)
+                  }}
+                >
+                  <ArrowUpRight className="h-4 w-4" />
+                  Gửi lên Hội đồng Biên tập
+                </Button>
+              ) : (
+                <Button 
+                  className="rounded-xl font-bold bg-success text-success-foreground gap-2 hover:bg-success/90"
+                  onClick={() => {
+                    setApproveComment('')
+                    setApproveDialogOpen(true)
+                  }}
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Phê duyệt bản thảo
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -981,6 +1031,41 @@ function EditorReviewContent() {
             <Button className="rounded-xl bg-success text-success-foreground font-semibold gap-1.5" onClick={handleForwardToBoard} disabled={isSubmittingAction}>
               <ArrowUpRight className="h-4 w-4" />
               {isSubmittingAction ? 'Đang gửi...' : 'Xác nhận gửi lên Hội đồng'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
+        <DialogContent className="max-w-md rounded-2xl bg-card border-border p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-success">
+              <CheckCircle2 className="h-5 w-5" />
+              Phê Duyệt Bản Thảo
+            </DialogTitle>
+            <DialogDescription>
+              Phê duyệt trực tiếp bản thảo này và chuyển trạng thái sang Đã xuất bản.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 my-4">
+            <Label htmlFor="app-comment" className="text-sm font-semibold">Lời chúc mừng / góp ý cuối</Label>
+            <Textarea
+              id="app-comment"
+              placeholder="Ví dụ: Bản vẽ rất tốt, nội dung hấp dẫn. Chúc mừng tác giả đã hoàn thành chương truyện!"
+              value={approveComment}
+              onChange={(e) => setApproveComment(e.target.value)}
+              className="min-h-[120px] rounded-xl border-border bg-background resize-none"
+            />
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" className="rounded-xl" onClick={() => setApproveDialogOpen(false)} disabled={isSubmittingAction}>
+              Hủy
+            </Button>
+            <Button className="rounded-xl bg-success text-success-foreground font-semibold gap-1.5" onClick={handleApproveSubmission} disabled={isSubmittingAction}>
+              <CheckCircle2 className="h-4 w-4" />
+              {isSubmittingAction ? 'Đang phê duyệt...' : 'Xác nhận phê duyệt'}
             </Button>
           </DialogFooter>
         </DialogContent>
