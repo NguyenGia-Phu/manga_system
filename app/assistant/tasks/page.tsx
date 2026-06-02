@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { getOptimizedImageUrl } from '@/lib/image-utils'
 
 interface TaskDto {
   id: string
@@ -261,7 +262,7 @@ export default function AssistantTasksPage() {
             <div className="flex gap-4">
               <div className="flex h-16 w-12 items-center justify-center overflow-hidden rounded-lg bg-muted">
                 {previewSrc ? (
-                  <img src={previewSrc} alt="Page preview" className="h-full w-full object-cover" />
+                  <img src={getOptimizedImageUrl(previewSrc, 'thumbnail')} alt="Page preview" className="h-full w-full object-cover" />
                 ) : (
                   <FileImage className="h-6 w-6 text-muted-foreground" />
                 )}
@@ -551,7 +552,7 @@ export default function AssistantTasksPage() {
               <div className="flex h-full w-full items-center justify-center overflow-hidden">
                 {previewUrl ? (
                   <div className="relative inline-block max-h-full max-w-full">
-                    <img src={previewUrl} alt="Task preview" className="max-h-screen max-w-screen object-contain" />
+                    <img src={getOptimizedImageUrl(previewUrl, 'large')} alt="Task preview" className="max-h-screen max-w-screen object-contain" />
                     {previewRegion && (
                       <div
                         className="pointer-events-none absolute border-2 border-amber-400/90 bg-amber-400/10"

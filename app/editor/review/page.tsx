@@ -44,6 +44,7 @@ import {
 import { graphqlRequest } from '@/lib/api'
 import { toast } from 'sonner'
 import Link from 'next/link'
+import { getOptimizedImageUrl } from '@/lib/image-utils'
 
 interface SubmissionItem {
   id: string
@@ -680,7 +681,7 @@ function EditorReviewContent() {
                   style={{ width: `${zoom}%` }}
                 >
                   <img 
-                    src={activePage.imageUrl} 
+                    src={getOptimizedImageUrl(activePage.imageUrl, 'large')} 
                     alt={`Trang ${activePage.pageNumber}`} 
                     className="max-h-[700px] object-contain w-full h-auto select-none pointer-events-none" 
                   />

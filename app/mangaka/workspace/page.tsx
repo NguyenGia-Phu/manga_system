@@ -31,6 +31,7 @@ import {
   Pencil
 } from 'lucide-react'
 import Link from 'next/link'
+import { getOptimizedImageUrl } from '@/lib/image-utils'
 
 interface PageResponseDto {
   id: string
@@ -76,6 +77,7 @@ function MangakaWorkspaceContent() {
   const [pages, setPages] = useState<PageResponseDto[]>([])
   const [selectedPageIndex, setSelectedPageIndex] = useState<number>(-1)
   const [loading, setLoading] = useState(true)
+  const [imageLoading, setImageLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [zoom, setZoom] = useState(100)
@@ -406,29 +408,31 @@ function MangakaWorkspaceContent() {
     }
   }
 
-  // Fetch annotation counts for all pages (to show badges) - PARALLEL
+  // Fetch annotation counts for all pages (to show badges) - SINGLE QUERY
   const fetchAllAnnotationCounts = async (pagesList: PageResponseDto[]) => {
+    if (!chapterId) return
     try {
       const query = `
-        query GetAnnotationsByPage($pageId: UUID!) {
-          annotationsByPage(pageId: $pageId) {
-            status
+        query GetUnresolvedCountByChapter($chapterId: UUID!) {
+          unresolvedCountByChapter(chapterId: $chapterId) {
+            pageId
+            unresolvedCount
           }
         }
       `
-      const results = await Promise.all(
-        pagesList.map(page =>
-          graphqlRequest<{ annotationsByPage: any[] }>(query, { pageId: page.id }, true)
-            .then(res => ({
-              pageId: page.id,
-              openCount: (res.data?.annotationsByPage || []).filter(a => a.status === 'Open').length
-            }))
-            .catch(() => ({ pageId: page.id, openCount: 0 }))
-        )
+      const res = await graphqlRequest<{ unresolvedCountByChapter: any[] }>(
+        query,
+        { chapterId },
+        true
       )
+      if (res.errors) throw new Error(res.errors[0].message)
+
+      const list = res.data?.unresolvedCountByChapter || []
       const counts: Record<string, number> = {}
-      for (const r of results) {
-        if (r.openCount > 0) counts[r.pageId] = r.openCount
+      for (const item of list) {
+        if (item.unresolvedCount > 0) {
+          counts[item.pageId] = item.unresolvedCount
+        }
       }
       setPageAnnotationCounts(counts)
     } catch (err) {
@@ -444,6 +448,26 @@ function MangakaWorkspaceContent() {
 
     if (selectedPageIndex >= 0 && selectedPageIndex < pages.length) {
       fetchAnnotations(pages[selectedPageIndex].id)
+    }
+  }, [selectedPageIndex, pages])
+
+  // Set image loading state and preload adjacent page images for instant switching
+  useEffect(() => {
+    if (selectedPageIndex >= 0 && selectedPageIndex < pages.length) {
+      setImageLoading(true)
+      
+      // Preload next and previous page images
+      const pagesToPreload = [selectedPageIndex - 1, selectedPageIndex + 1]
+      pagesToPreload.forEach(idx => {
+        if (idx >= 0 && idx < pages.length) {
+          const url = pages[idx].imageUrl
+          if (url) {
+            const optimizedUrl = getOptimizedImageUrl(url, 'large')
+            const img = new Image()
+            img.src = optimizedUrl
+          }
+        }
+      })
     }
   }, [selectedPageIndex, pages])
 
@@ -553,7 +577,7 @@ function MangakaWorkspaceContent() {
                 >
                   <div className="flex h-12 w-9 items-center justify-center rounded-lg bg-background border border-border/80 overflow-hidden relative flex-shrink-0">
                     {p.imageUrl ? (
-                      <img src={p.imageUrl} alt={`Trang ${p.pageNumber}`} className="object-cover h-full w-full" />
+                      <img src={getOptimizedImageUrl(p.imageUrl, 'thumbnail')} alt={`Trang ${p.pageNumber}`} className="object-cover h-full w-full" />
                     ) : (
                       <FileImage className="h-4 w-4 opacity-50" />
                     )}
@@ -730,10 +754,17 @@ function MangakaWorkspaceContent() {
                   style={{ width: `${zoom}%` }}
                 >
                   <img 
-                    src={activePage.imageUrl} 
+                    src={getOptimizedImageUrl(activePage.imageUrl, 'large')} 
                     alt={`Bản vẽ Trang ${activePage.pageNumber}`} 
-                    className="max-h-[680px] object-contain w-auto h-auto transition-transform" 
+                    className={`max-h-[680px] object-contain w-auto h-auto transition-all duration-200 ${imageLoading ? 'opacity-30 blur-[2px]' : 'opacity-100 blur-0'}`}
+                    onLoad={() => setImageLoading(false)}
                   />
+
+                  {imageLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/30 backdrop-blur-[1px] z-20">
+                      <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+                    </div>
+                  )}
 
                   {/* Annotation dots overlay */}
                   {showAnnotations && annotations.map((anno) => (
@@ -796,7 +827,7 @@ function MangakaWorkspaceContent() {
               {historyPages.map((hp) => (
                 <Card key={hp.id} className={`bg-card/50 border border-border overflow-hidden rounded-xl ${hp.isCurrentVersion ? 'border-primary bg-primary/5' : ''}`}>
                   <div className="aspect-[3/4] bg-slate-900 flex items-center justify-center relative border-b border-border overflow-hidden">
-                    <img src={hp.imageUrl} alt={`V${hp.version}`} className="object-contain h-full w-full" />
+                    <img src={getOptimizedImageUrl(hp.imageUrl, 'medium')} alt={`V${hp.version}`} className="object-contain h-full w-full" />
                     <div className="absolute top-2 left-2 bg-slate-900/80 backdrop-blur-md px-2 py-0.5 rounded-md text-[10px] font-bold text-foreground">
                       Phiên bản V{hp.version}
                     </div>

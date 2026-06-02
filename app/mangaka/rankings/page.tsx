@@ -41,8 +41,10 @@ export default function MangakaRankingsPage() {
               <p className="text-center py-4 text-muted-foreground">Không có dữ liệu series</p>
             ) : (
               mySeries.map((series) => {
-                const rankChange = series.previousRank - series.rank
-                const isAtRisk = series.rank >= 15
+                const rankChange = (series.previousRank !== undefined && series.rank !== undefined)
+                  ? series.previousRank - series.rank
+                  : 0
+                const isAtRisk = series.rank ? series.rank >= 15 : false
                 
                 return (
                   <div
@@ -59,7 +61,7 @@ export default function MangakaRankingsPage() {
                       series.rank === 3 ? 'bg-orange-500/20 text-orange-500' :
                       'bg-muted text-muted-foreground'
                     }`}>
-                      #{series.rank}
+                      #{series.rank ?? '-'}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
@@ -71,7 +73,7 @@ export default function MangakaRankingsPage() {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground">{series.titleJp}</p>
+                      <p className="text-sm text-muted-foreground">{series.alternativeTitle ?? ''}</p>
                     </div>
                     <div className="text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -95,7 +97,7 @@ export default function MangakaRankingsPage() {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {series.votes.toLocaleString()} phiếu bầu
+                        {(series.votes ?? 0).toLocaleString()} phiếu bầu
                       </p>
                     </div>
                   </div>
@@ -117,9 +119,11 @@ export default function MangakaRankingsPage() {
                 <p className="text-center py-4 text-muted-foreground">Không có dữ liệu xếp hạng</p>
               ) : (
                 allSeries
-                  .sort((a, b) => a.rank - b.rank)
+                  .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
                   .map((series) => {
-                    const rankChange = series.previousRank - series.rank
+                    const rankChange = (series.previousRank !== undefined && series.rank !== undefined)
+                      ? series.previousRank - series.rank
+                      : 0
                     const isMySeries = series.authorId === 'u1'
                     
                     return (
@@ -135,7 +139,7 @@ export default function MangakaRankingsPage() {
                           {series.rank === 1 && <Trophy className="h-5 w-5 text-yellow-500" />}
                           {series.rank === 2 && <Medal className="h-5 w-5 text-gray-400" />}
                           {series.rank === 3 && <Medal className="h-5 w-5 text-orange-500" />}
-                          {series.rank > 3 && (
+                          {series.rank !== undefined && series.rank > 3 && (
                             <span className="text-sm font-medium text-muted-foreground">
                               {series.rank}
                             </span>
@@ -152,7 +156,7 @@ export default function MangakaRankingsPage() {
                               </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground">{series.author}</p>
+                          <p className="text-xs text-muted-foreground">{series.authorName}</p>
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="w-16 text-right">
@@ -174,7 +178,7 @@ export default function MangakaRankingsPage() {
                           </div>
                           <div className="w-20 text-right">
                             <p className="text-sm font-medium text-foreground">
-                              {series.votes.toLocaleString()}
+                              {(series.votes ?? 0).toLocaleString()}
                             </p>
                             <p className="text-xs text-muted-foreground">phiếu</p>
                           </div>

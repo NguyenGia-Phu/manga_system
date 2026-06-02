@@ -22,6 +22,7 @@ import {
 } from "lucide-react"
 import { getAccessToken, graphqlRequest, restRequest } from "@/lib/api"
 import { toast } from "sonner"
+import { getOptimizedImageUrl } from "@/lib/image-utils"
 
 interface AssistantDto {
   id: string
@@ -329,9 +330,9 @@ export default function MangakaReviewPage() {
                       {/* Preview */}
                       <div className="w-40 h-48 bg-muted flex items-center justify-center border-r border-border shrink-0 relative overflow-hidden">
                         {submission.resultImage ? (
-                          <img src={submission.resultImage} alt="Preview" className="w-full h-full object-cover" />
+                          <img src={getOptimizedImageUrl(submission.resultImage, 'medium')} alt="Preview" className="w-full h-full object-cover" />
                         ) : submission.originalImage ? (
-                          <img src={submission.originalImage} alt="Preview" className="w-full h-full object-cover" />
+                          <img src={getOptimizedImageUrl(submission.originalImage, 'medium')} alt="Preview" className="w-full h-full object-cover" />
                         ) : (
                           <div className="text-center text-muted-foreground">
                             <Layers className="h-8 w-8 mx-auto mb-2" />
@@ -388,9 +389,9 @@ export default function MangakaReviewPage() {
                   <div className="flex">
                     <div className="w-40 h-40 bg-muted flex items-center justify-center border-r border-border shrink-0 relative overflow-hidden">
                       {submission.resultImage ? (
-                        <img src={submission.resultImage} alt="Preview" className="w-full h-full object-cover" />
+                        <img src={getOptimizedImageUrl(submission.resultImage, 'medium')} alt="Preview" className="w-full h-full object-cover" />
                       ) : submission.originalImage ? (
-                        <img src={submission.originalImage} alt="Preview" className="w-full h-full object-cover" />
+                        <img src={getOptimizedImageUrl(submission.originalImage, 'medium')} alt="Preview" className="w-full h-full object-cover" />
                       ) : (
                         <div className="text-center text-muted-foreground">
                           <Layers className="h-8 w-8 mx-auto mb-2" />
@@ -495,7 +496,7 @@ export default function MangakaReviewPage() {
                       <div className="bg-muted h-[68vh] flex items-center justify-center overflow-hidden">
                         {selectedSubmission?.originalImage ? (
                           <img
-                            src={selectedSubmission.originalImage}
+                            src={getOptimizedImageUrl(selectedSubmission.originalImage, 'large')}
                             alt="Original"
                             className="h-full w-full object-contain"
                             style={{ transform: `scale(${zoom / 100})` }}
@@ -510,7 +511,7 @@ export default function MangakaReviewPage() {
                       <div className="bg-muted h-[68vh] flex items-center justify-center overflow-hidden">
                         {selectedSubmission?.resultImage ? (
                           <img
-                            src={selectedSubmission.resultImage}
+                            src={getOptimizedImageUrl(selectedSubmission.resultImage, 'large')}
                             alt="Result"
                             className="h-full w-full object-contain"
                             style={{ transform: `scale(${zoom / 100})` }}
@@ -527,14 +528,14 @@ export default function MangakaReviewPage() {
                     <div className="h-[68vh] flex items-center justify-center overflow-hidden">
                       {viewMode === 'original' && selectedSubmission?.originalImage ? (
                         <img
-                          src={selectedSubmission.originalImage}
+                          src={getOptimizedImageUrl(selectedSubmission.originalImage, 'large')}
                           alt="Original"
                           className="h-full w-full object-contain"
                           style={{ transform: `scale(${zoom / 100})` }}
                         />
                       ) : viewMode === 'result' && selectedSubmission?.resultImage ? (
                         <img
-                          src={selectedSubmission.resultImage}
+                          src={getOptimizedImageUrl(selectedSubmission.resultImage, 'large')}
                           alt="Result"
                           className="h-full w-full object-contain"
                           style={{ transform: `scale(${zoom / 100})` }}

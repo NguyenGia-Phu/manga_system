@@ -19,7 +19,7 @@ import Link from 'next/link'
 
 export default function BoardDashboard() {
   const openVoteSessions = mockVoteSessions.filter(v => v.status === 'open')
-  const atRiskSeries = mockSeries.filter(s => s.rank >= 15)
+  const atRiskSeries = mockSeries.filter(s => s.rank && s.rank >= 15)
   const latestPoll = mockPollData[0]
 
   const stats = [
@@ -46,7 +46,7 @@ export default function BoardDashboard() {
     },
     {
       label: 'Tuần hiện tại',
-      value: `W${latestPoll.weekNumber}`,
+      value: latestPoll ? `W${latestPoll.weekNumber}` : 'N/A',
       icon: Clock,
       color: 'text-muted-foreground',
       bgColor: 'bg-muted',
@@ -155,10 +155,12 @@ export default function BoardDashboard() {
             </CardHeader>
             <CardContent className="space-y-3">
               {mockSeries
-                .sort((a, b) => a.rank - b.rank)
+                .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
                 .slice(0, 5)
                 .map((series) => {
-                  const rankChange = series.previousRank - series.rank
+                  const rankChange = (series.previousRank !== undefined && series.rank !== undefined)
+                    ? series.previousRank - series.rank
+                    : 0
 
                   return (
                     <div
@@ -171,11 +173,11 @@ export default function BoardDashboard() {
                         series.rank === 3 ? 'bg-orange-500/20 text-orange-500' :
                         'bg-muted text-muted-foreground'
                       }`}>
-                        {series.rank}
+                        {series.rank ?? '-'}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-foreground truncate">{series.title}</p>
-                        <p className="text-xs text-muted-foreground">{series.author}</p>
+                        <p className="text-xs text-muted-foreground">{series.authorName}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         {rankChange > 0 && (
@@ -191,7 +193,7 @@ export default function BoardDashboard() {
                           </span>
                         )}
                         <span className="text-sm font-medium text-foreground">
-                          {series.votes.toLocaleString()}
+                          {(series.votes ?? 0).toLocaleString()}
                         </span>
                       </div>
                     </div>
@@ -222,12 +224,12 @@ export default function BoardDashboard() {
                   >
                     <div className="flex items-center gap-4">
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/10 text-destructive font-bold">
-                        #{series.rank}
+                        #{series.rank ?? '-'}
                       </div>
                       <div>
                         <h3 className="font-semibold text-foreground">{series.title}</h3>
                         <p className="text-sm text-muted-foreground">
-                          {series.author} • {series.votes.toLocaleString()} phiếu
+                          {series.authorName} • {(series.votes ?? 0).toLocaleString()} phiếu
                         </p>
                       </div>
                     </div>

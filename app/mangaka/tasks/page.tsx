@@ -45,6 +45,7 @@ import {
   UserCheck,
 } from 'lucide-react'
 import Link from 'next/link'
+import { getOptimizedImageUrl } from '@/lib/image-utils'
 
 // ─── Types ───────────────────────────────────────────────
 interface PageDto {
@@ -658,7 +659,7 @@ function MangakaTasksContent() {
                   >
                     <div className="flex h-12 w-9 items-center justify-center rounded-lg bg-background border border-border/80 overflow-hidden relative flex-shrink-0">
                       {p.imageUrl ? (
-                        <img src={p.imageUrl} alt={`Trang ${p.pageNumber}`} className="object-cover h-full w-full" />
+                        <img src={getOptimizedImageUrl(p.imageUrl, 'thumbnail')} alt={`Trang ${p.pageNumber}`} className="object-cover h-full w-full" />
                       ) : (
                         <FileImage className="h-4 w-4 opacity-50" />
                       )}
@@ -714,7 +715,7 @@ function MangakaTasksContent() {
                   onMouseLeave={() => setDrawingRegion(null)}
                 >
                   <img
-                    src={selectedPage.imageUrl}
+                    src={getOptimizedImageUrl(selectedPage.imageUrl, 'large')}
                     alt={`Trang ${selectedPage.pageNumber}`}
                     className="w-full h-auto max-h-[600px] object-contain select-none pointer-events-none"
                     draggable={false}

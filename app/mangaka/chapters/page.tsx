@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -101,12 +101,20 @@ function getStatusLabel(status: string): string {
   return labels[status] || status
 }
 
+// Client-side cache to persist chapters and series lists across page transitions without full-page reloads
+let cachedMySeries: Series[] = []
+let cachedSelectedSeriesId: string = ''
+let cachedChapters: Record<string, ChapterDto[]> = {}
+let isFirstLoad = true
+
 export default function MangakaChaptersPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [mySeries, setMySeries] = useState<Series[]>([])
-  const [selectedSeriesId, setSelectedSeriesId] = useState<string>('')
-  const [chapters, setChapters] = useState<ChapterDto[]>([])
-  const [loading, setLoading] = useState(true)
+  const [mySeries, setMySeries] = useState<Series[]>(cachedMySeries)
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string>(cachedSelectedSeriesId)
+  const [chapters, setChapters] = useState<ChapterDto[]>(
+    cachedSelectedSeriesId ? (cachedChapters[cachedSelectedSeriesId] || []) : []
+  )
+  const [loading, setLoading] = useState(isFirstLoad)
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -152,7 +160,10 @@ export default function MangakaChaptersPage() {
         const res = await graphqlRequest<{ mySeries: Series[] }>(query, {}, true)
         if (res.errors) throw new Error(res.errors[0].message)
         const list = res.data?.mySeries || []
+        
+        cachedMySeries = list
         setMySeries(list)
+        
         if (list.length > 0) {
           let targetSeriesId = list[0].id
           if (typeof window !== 'undefined') {
@@ -162,23 +173,35 @@ export default function MangakaChaptersPage() {
               targetSeriesId = seriesIdFromUrl
             }
           }
-          setSelectedSeriesId(targetSeriesId)
+          
+          if (selectedSeriesId !== targetSeriesId) {
+            cachedSelectedSeriesId = targetSeriesId
+            setSelectedSeriesId(targetSeriesId)
+          }
         } else {
           setLoading(false)
+          isFirstLoad = false
         }
       } catch (err: any) {
         console.error(err)
         toast.error('Lỗi tải danh sách bộ truyện: ' + err.message)
         setLoading(false)
+        isFirstLoad = false
       }
     }
     fetchSeries()
   }, [currentUser])
 
   // 3. Fetch Chapters & Submissions when Selected Series changes
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!selectedSeriesId || !currentUser) return
-    setLoading(true)
+    
+    // Only show full-screen loading spinner if we don't have cached data for this series
+    const hasCache = cachedChapters[selectedSeriesId] && cachedChapters[selectedSeriesId].length > 0
+    if (!hasCache) {
+      setLoading(true)
+    }
+
     try {
       // Query Chapters
       const chaptersQuery = `
@@ -305,18 +328,20 @@ export default function MangakaChaptersPage() {
         return mapped
       }))
 
+      cachedChapters[selectedSeriesId] = mappedChapters
       setChapters(mappedChapters)
     } catch (err: any) {
       console.error(err)
       toast.error('Lỗi nạp dữ liệu chương: ' + err.message)
     } finally {
       setLoading(false)
+      isFirstLoad = false
     }
-  }
+  }, [selectedSeriesId, currentUser])
 
   useEffect(() => {
     fetchData()
-  }, [selectedSeriesId])
+  }, [fetchData])
 
   // 4. Handle Create Chapter
   const handleCreateChapter = async () => {
