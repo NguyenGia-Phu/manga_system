@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { loginUser, setAccessToken, setUserRoles, isAuthenticated, graphqlRequest } from '@/lib/api'
+import { loginUser, setAccessToken, setRefreshToken, setUserRoles, isAuthenticated, graphqlRequest } from '@/lib/api'
 import { BookOpen, Eye, EyeOff, Loader2, AlertCircle, Sparkles, UserPlus, LogIn, CheckCircle2, KeyRound } from 'lucide-react'
 
 type TabMode = 'login' | 'register'
@@ -80,6 +80,7 @@ export default function LoginPage() {
 
       if (result.succeeded && result.data) {
         setAccessToken(result.data.accessToken)
+        setRefreshToken(result.data.refreshToken)
         setUserRoles(result.data.roles)
 
         localStorage.setItem('currentUser', JSON.stringify({
@@ -163,6 +164,7 @@ export default function LoginPage() {
       if (registerResult.succeeded && registerResult.data) {
         // Register trả về accessToken luôn → đăng nhập tự động
         setAccessToken(registerResult.data.accessToken)
+        setRefreshToken(registerResult.data.refreshToken)
         setUserRoles(registerResult.data.roles)
 
         localStorage.setItem('currentUser', JSON.stringify({
