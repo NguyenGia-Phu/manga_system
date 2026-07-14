@@ -218,8 +218,8 @@ export default function MangakaChaptersPage() {
       `
       // Query Submissions
       const submissionsQuery = `
-        query GetMySubmissions($seriesId: UUID) {
-          mySubmissions(seriesId: $seriesId) {
+        query GetMySubmissions {
+          mySubmissions {
             id
             title
             note
@@ -255,14 +255,15 @@ export default function MangakaChaptersPage() {
         ),
         graphqlRequest<{ mySubmissions: Submission[] }>(
           submissionsQuery,
-          { seriesId: selectedSeriesId },
+          {},
           true
         )
       ])
 
       if (chaptersRes.errors) throw new Error(chaptersRes.errors[0].message)
       const rawChapters = chaptersRes.data?.chaptersBySeries || []
-      const submissionsList = submissionsRes.data?.mySubmissions || []
+      const submissionsList = (submissionsRes.data?.mySubmissions || [])
+        .filter((sub) => sub.seriesId === selectedSeriesId)
 
       // Map workflow status dynamically
       const mappedChapters = await Promise.all(rawChapters.map(async (ch) => {

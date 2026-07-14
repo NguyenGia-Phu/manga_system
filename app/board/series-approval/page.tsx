@@ -142,8 +142,6 @@ export default function SeriesApprovalPage() {
             id
             seriesId
             seriesTitle
-            seriesDescription
-            seriesCoverImageUrl
             mangakaId
             mangakaName
             submittedAt
@@ -167,8 +165,8 @@ export default function SeriesApprovalPage() {
         seriesId: sub.seriesId,
         title: sub.seriesTitle,
         alternativeTitle: null,
-        description: sub.seriesDescription || 'Không có mô tả',
-        coverImageUrl: sub.seriesCoverImageUrl,
+        description: 'Không có mô tả',
+        coverImageUrl: null,
         status: sub.status,
         authorId: sub.mangakaId || '',
         authorName: sub.mangakaName || 'Unknown',
