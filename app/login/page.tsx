@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { loginUser, setAccessToken, setRefreshToken, setUserRoles, isAuthenticated, graphqlRequest } from '@/lib/api'
-import { BookOpen, Eye, EyeOff, Loader2, AlertCircle, Sparkles, UserPlus, LogIn, CheckCircle2, KeyRound } from 'lucide-react'
+import { loginUser, setAccessToken, setRefreshToken, setUserRoles, isAuthenticated, graphqlRequest, restRequest } from '@/lib/api'
+import { BookOpen, Eye, EyeOff, Loader2, AlertCircle, Sparkles, UserPlus, LogIn, CheckCircle2, KeyRound, Upload, FileText } from 'lucide-react'
 
 type TabMode = 'login' | 'register'
 
@@ -31,17 +31,20 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
 
   // Register state
+  const [registerType, setRegisterType] = useState<'mangaka' | 'assistant'>('mangaka')
   const [regToken, setRegToken] = useState('')
   const [regUsername, setRegUsername] = useState('')
   const [regPassword, setRegPassword] = useState('')
   const [regConfirmPassword, setRegConfirmPassword] = useState('')
   const [showRegPassword, setShowRegPassword] = useState(false)
 
-  // Test invite state
-  const [testEmail, setTestEmail] = useState('')
-  const [isSendingTestInvite, setIsSendingTestInvite] = useState(false)
-  const [testInviteSuccess, setTestInviteSuccess] = useState<string | null>(null)
-  const [testInviteError, setTestInviteError] = useState<string | null>(null)
+  // Mangaka application state
+  const [appEmail, setAppEmail] = useState('')
+  const [appPassword, setAppPassword] = useState('')
+  const [appConfirmPassword, setAppConfirmPassword] = useState('')
+  const [appFullName, setAppFullName] = useState('')
+  const [appSeriesTitle, setAppSeriesTitle] = useState('')
+  const [appFiles, setAppFiles] = useState<File[]>([])
 
   // Shared state
   const [isLoading, setIsLoading] = useState(false)
@@ -107,154 +110,140 @@ export default function LoginPage() {
     setError(null)
     setSuccessMsg(null)
 
-    if (regPassword !== regConfirmPassword) {
-      setError('Mật khẩu xác nhận không khớp!')
-      return
-    }
-
-    if (regPassword.length < 8) {
-      setError('Mật khẩu phải có ít nhất 8 ký tự!')
-      return
-    }
-
-    if (!regToken.trim()) {
-      setError('Vui lòng nhập mã mời (Invite Token) bạn nhận được qua email!')
-      return
-    }
-
-    setIsLoading(true)
-
-    try {
-      const query = `
-        mutation Register($request: RegisterRequestInput!) {
-          register(request: $request) {
-            succeeded
-            message
-            errors {
-              key
-              value
-            }
-            data {
-              id
-              username
-              email
-              accessToken
-              refreshToken
-              roles
-            }
-          }
-        }
-      `
-
-      const result = await graphqlRequest<{ register: RegisterResponse }>(query, {
-        request: {
-          token: regToken.trim(),
-          username: regUsername,
-          password: regPassword,
-        },
-      })
-
-      if (result.errors && result.errors.length > 0) {
-        setError(result.errors[0].message)
+    if (registerType === 'mangaka') {
+      if (appPassword !== appConfirmPassword) {
+        setError('Mật khẩu xác nhận không khớp!')
         return
       }
 
-      const registerResult = result.data!.register
-
-      if (registerResult.succeeded && registerResult.data) {
-        // Register trả về accessToken luôn → đăng nhập tự động
-        setAccessToken(registerResult.data.accessToken)
-        setRefreshToken(registerResult.data.refreshToken)
-        setUserRoles(registerResult.data.roles)
-
-        localStorage.setItem('currentUser', JSON.stringify({
-          id: registerResult.data.id,
-          username: registerResult.data.username,
-          email: registerResult.data.email,
-          roles: registerResult.data.roles,
-        }))
-
-        setSuccessMsg('Đăng ký thành công! Đang chuyển hướng...')
-
-        setTimeout(() => {
-          router.push('/')
-        }, 1500)
-      } else {
-        setError(registerResult.message || registerResult.errors?.join(', ') || 'Đăng ký thất bại.')
-      }
-    } catch (err) {
-      console.error('Register error:', err)
-      setError('Không thể kết nối đến server. Vui lòng kiểm tra backend đang chạy.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleRequestTestInvite = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setTestInviteError(null)
-    setTestInviteSuccess(null)
-    setIsSendingTestInvite(true)
-
-    try {
-      // 1. Đăng nhập tài khoản Admin test trong hệ thống
-      const loginRes = await loginUser('admin@mms.com', 'Admin@123')
-      if (!loginRes.succeeded || !loginRes.data?.accessToken) {
-        throw new Error(loginRes.message || 'Không thể đăng nhập tài khoản Admin test.')
+      if (appPassword.length < 8) {
+        setError('Mật khẩu phải có ít nhất 8 ký tự!')
+        return
       }
 
-      const adminToken = loginRes.data.accessToken
+      if (appFiles.length === 0) {
+        setError('Vui lòng chọn ít nhất một file ảnh bản thảo tác phẩm!')
+        return
+      }
 
-      // 2. Gọi Mutation InviteUser để gửi mail và sinh mã mời
-      const inviteMutation = `
-        mutation InviteUser($request: InviteRequestInput!) {
-          inviteUser(request: $request) {
-            succeeded
-            message
-            errors {
-              key
-              value
-            }
-            data {
-              email
-              token
-              roleName
-              expiryDate
-            }
-          }
+      setIsLoading(true)
+
+      try {
+        const formData = new FormData()
+        formData.append('Email', appEmail.trim())
+        formData.append('Password', appPassword)
+        formData.append('FullName', appFullName.trim())
+        formData.append('SeriesTitle', appSeriesTitle.trim())
+        appFiles.forEach((file) => {
+          formData.append('Files', file)
+        })
+
+        const response = await restRequest<any>('/candidate-application/submit', {
+          method: 'POST',
+          body: formData,
+          isFormData: true,
+          requireAuth: false,
+        })
+
+        if (response && response.succeeded) {
+          setSuccessMsg(response.message || 'Đơn ứng tuyển đã được gửi thành công. Vui lòng chờ phản hồi qua email.')
+          // Reset form fields
+          setAppEmail('')
+          setAppPassword('')
+          setAppConfirmPassword('')
+          setAppFullName('')
+          setAppSeriesTitle('')
+          setAppFiles([])
+        } else {
+          setError(response?.message || 'Gửi đơn ứng tuyển thất bại.')
         }
-      `
+      } catch (err: any) {
+        console.error('Mangaka register error:', err)
+        setError(err.message || 'Không thể kết nối đến server. Vui lòng kiểm tra backend đang chạy.')
+      } finally {
+        setIsLoading(false)
+      }
+    } else {
+      if (regPassword !== regConfirmPassword) {
+        setError('Mật khẩu xác nhận không khớp!')
+        return
+      }
 
-      const inviteResult = await graphqlRequest<{ inviteUser: any }>(
-        inviteMutation,
-        {
-          request: {
-            email: testEmail.trim(),
-            roleName: 'Mangaka'
+      if (regPassword.length < 8) {
+        setError('Mật khẩu phải có ít nhất 8 ký tự!')
+        return
+      }
+
+      if (!regToken.trim()) {
+        setError('Vui lòng nhập mã mời (Invite Token) bạn nhận được qua email!')
+        return
+      }
+
+      setIsLoading(true)
+
+      try {
+        const query = `
+          mutation Register($request: RegisterRequestInput!) {
+            register(request: $request) {
+              succeeded
+              message
+              errors {
+                key
+                value
+              }
+              data {
+                id
+                username
+                email
+                accessToken
+                refreshToken
+                roles
+              }
+            }
           }
-        },
-        false,
-        adminToken
-      )
+        `
 
-      if (inviteResult.errors && inviteResult.errors.length > 0) {
-        throw new Error(inviteResult.errors[0].message)
+        const result = await graphqlRequest<{ register: RegisterResponse }>(query, {
+          request: {
+            token: regToken.trim(),
+            username: regUsername,
+            password: regPassword,
+          },
+        })
+
+        if (result.errors && result.errors.length > 0) {
+          setError(result.errors[0].message)
+          return
+        }
+
+        const registerResult = result.data!.register
+
+        if (registerResult.succeeded && registerResult.data) {
+          setAccessToken(registerResult.data.accessToken)
+          setRefreshToken(registerResult.data.refreshToken)
+          setUserRoles(registerResult.data.roles)
+
+          localStorage.setItem('currentUser', JSON.stringify({
+            id: registerResult.data.id,
+            username: registerResult.data.username,
+            email: registerResult.data.email,
+            roles: registerResult.data.roles,
+          }))
+
+          setSuccessMsg('Đăng ký thành công! Đang chuyển hướng...')
+
+          setTimeout(() => {
+            router.push('/')
+          }, 1500)
+        } else {
+          setError(registerResult.message || registerResult.errors?.join(', ') || 'Đăng ký thất bại.')
+        }
+      } catch (err) {
+        console.error('Register error:', err)
+        setError('Không thể kết nối đến server. Vui lòng kiểm tra backend đang chạy.')
+      } finally {
+        setIsLoading(false)
       }
-
-      const inviteRes = inviteResult.data?.inviteUser
-      if (inviteRes?.succeeded && inviteRes.data) {
-        setTestInviteSuccess(`Mã mời đã được gửi tới mail ${testEmail}!`)
-        // Điền luôn mã mời vào ô nhập phía dưới
-        setRegToken(inviteRes.data.token)
-      } else {
-        throw new Error(inviteRes?.message || inviteRes?.errors?.join(', ') || 'Gửi lời mời thất bại.')
-      }
-
-    } catch (err: any) {
-      console.error('Test invite error:', err)
-      setTestInviteError(err.message || 'Có lỗi xảy ra khi gửi mã mời. Hãy kiểm tra kết nối Server/Email.')
-    } finally {
-      setIsSendingTestInvite(false)
     }
   }
 
@@ -397,162 +386,320 @@ export default function LoginPage() {
         {/* ===== REGISTER FORM ===== */}
         {mode === 'register' && (
           <form onSubmit={handleRegister} className="login-form">
-            {/* Invite Token Notice */}
-            <div className="login-invite-notice">
-              <KeyRound className="login-invite-notice-icon" />
-              <p>Bạn cần có <strong>mã mời (Invite Token)</strong> được gửi qua email bởi Mangaka hoặc Admin để đăng ký tài khoản.</p>
+            {/* Sub-tab selection */}
+            <div className="login-role-selector" style={{ marginBottom: '8px' }}>
+              <button
+                type="button"
+                className={`login-role-btn ${registerType === 'mangaka' ? 'login-role-btn--active' : ''}`}
+                onClick={() => {
+                  setRegisterType('mangaka')
+                  setError(null)
+                  setSuccessMsg(null)
+                }}
+              >
+                🎨 Tác giả (Mangaka)
+              </button>
+              <button
+                type="button"
+                className={`login-role-btn ${registerType === 'assistant' ? 'login-role-btn--active' : ''}`}
+                onClick={() => {
+                  setRegisterType('assistant')
+                  setError(null)
+                  setSuccessMsg(null)
+                }}
+              >
+                ✍️ Trợ lý (Assistant)
+              </button>
             </div>
 
-            {/* Quick Test Invite Request */}
-            <div className="login-test-invite-section">
-              <div className="login-test-invite-header">
-                <Sparkles className="login-test-invite-icon-sparkle" />
-                <span>Nhận mã mời nhanh (Test)</span>
-              </div>
-              <p className="login-test-invite-desc">
-                Nhập email của bạn để hệ thống gửi mã mời (vai trò Mangaka) về email, đồng thời tự động điền vào ô bên dưới.
-              </p>
-              <div className="login-test-invite-form">
-                <input
-                  type="email"
-                  value={testEmail}
-                  onChange={(e) => setTestEmail(e.target.value)}
-                  placeholder="Nhập email của bạn..."
-                  className="login-input login-test-invite-input"
-                  disabled={isSendingTestInvite}
-                />
+            {registerType === 'mangaka' ? (
+              <>
+                {/* Mangaka Registration Form */}
+                <div className="login-invite-notice" style={{ background: 'rgba(59, 130, 246, 0.08)', borderColor: 'rgba(59, 130, 246, 0.15)' }}>
+                  <Sparkles className="login-invite-notice-icon" style={{ color: '#60a5fa' }} />
+                  <p style={{ color: '#93c5fd' }}>
+                    Đăng ký tài khoản tác giả bằng cách nộp **tác phẩm đầu tay**. Đơn của bạn sẽ được gửi tới **Hội đồng biên tập** xét duyệt.
+                  </p>
+                </div>
+
+                <div className="login-field">
+                  <label htmlFor="app-email" className="login-label">
+                    Địa chỉ Email <span className="text-red-500">*</span>
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="app-email"
+                      type="email"
+                      value={appEmail}
+                      onChange={(e) => setAppEmail(e.target.value)}
+                      placeholder="author@example.com"
+                      required
+                      disabled={isLoading}
+                      className="login-input"
+                    />
+                    <div className="login-input-focus" />
+                  </div>
+                </div>
+
+                <div className="login-field">
+                  <label htmlFor="app-fullname" className="login-label">
+                    Họ tên / Bút danh <span className="text-red-500">*</span>
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="app-fullname"
+                      type="text"
+                      value={appFullName}
+                      onChange={(e) => setAppFullName(e.target.value)}
+                      placeholder="Tên tác giả hiển thị..."
+                      required
+                      disabled={isLoading}
+                      className="login-input"
+                    />
+                    <div className="login-input-focus" />
+                  </div>
+                </div>
+
+                <div className="login-field">
+                  <label htmlFor="app-seriestitle" className="login-label">
+                    Tên tác phẩm đầu tay <span className="text-red-500">*</span>
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="app-seriestitle"
+                      type="text"
+                      value={appSeriesTitle}
+                      onChange={(e) => setAppSeriesTitle(e.target.value)}
+                      placeholder="Nhập tên series truyện đầu tay..."
+                      required
+                      disabled={isLoading}
+                      className="login-input"
+                    />
+                    <div className="login-input-focus" />
+                  </div>
+                </div>
+
+                <div className="login-field">
+                  <label htmlFor="app-password" className="login-label">
+                    Mật khẩu đăng nhập <span className="text-red-500">*</span>
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="app-password"
+                      type={showRegPassword ? 'text' : 'password'}
+                      value={appPassword}
+                      onChange={(e) => setAppPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      disabled={isLoading}
+                      className="login-input login-input--password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword(!showRegPassword)}
+                      className="login-eye-btn"
+                      tabIndex={-1}
+                    >
+                      {showRegPassword ? <EyeOff className="login-eye-icon" /> : <Eye className="login-eye-icon" />}
+                    </button>
+                    <div className="login-input-focus" />
+                  </div>
+                </div>
+
+                <div className="login-field">
+                  <label htmlFor="app-confirm-password" className="login-label">
+                    Xác nhận mật khẩu <span className="text-red-500">*</span>
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="app-confirm-password"
+                      type={showRegPassword ? 'text' : 'password'}
+                      value={appConfirmPassword}
+                      onChange={(e) => setAppConfirmPassword(e.target.value)}
+                      placeholder="Nhập lại mật khẩu"
+                      required
+                      disabled={isLoading}
+                      className="login-input"
+                    />
+                    <div className="login-input-focus" />
+                  </div>
+                </div>
+
+                <div className="login-field">
+                  <label className="login-label flex justify-between items-center" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Ảnh trang bản thảo (Nộp nhiều ảnh) <span className="text-red-500">*</span></span>
+                    <span className="text-xs opacity-60">JPG, PNG, WEBP</span>
+                  </label>
+                  <div className="relative hover:border-primary/50 bg-secondary/15 rounded-xl p-6 transition-all flex flex-col items-center justify-center text-center cursor-pointer" style={{ position: 'relative', border: '2px dashed rgba(99, 102, 241, 0.25)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          setAppFiles(Array.from(e.target.files))
+                        }
+                      }}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+                      disabled={isLoading}
+                      required
+                    />
+                    <Upload className="h-8 w-8 text-primary mb-2 opacity-70" style={{ width: '32px', height: '32px', color: '#6366f1', marginBottom: '8px', opacity: 0.7 }} />
+                    <span className="text-sm font-semibold text-foreground">Chọn các file ảnh để tải lên</span>
+                    <span className="text-xs text-muted-foreground mt-1" style={{ fontSize: '11px', color: 'rgba(148, 163, 184, 0.6)', marginTop: '4px' }}>Hội đồng sẽ đánh giá dựa trên bản thảo này</span>
+                  </div>
+                  {appFiles.length > 0 && (
+                    <div className="p-3 bg-secondary/35 rounded-xl border border-border/50 space-y-1.5 mt-2" style={{ padding: '12px', background: 'rgba(30, 30, 60, 0.4)', borderRadius: '12px', border: '1px solid rgba(99, 102, 241, 0.15)', marginTop: '8px' }}>
+                      <p className="text-xs font-bold text-emerald-400 flex items-center gap-1.5" style={{ fontSize: '12px', fontWeight: 'bold', color: '#34d399', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                        <CheckCircle2 className="h-4 w-4" style={{ width: '16px', height: '16px' }} />
+                        Đã chọn {appFiles.length} file hình ảnh:
+                      </p>
+                      <div className="max-h-24 overflow-y-auto text-[11px] text-muted-foreground space-y-0.5" style={{ maxHeight: '96px', overflowY: 'auto', fontSize: '11px', color: 'rgba(148, 163, 184, 0.7)', marginTop: '6px' }}>
+                        {appFiles.map((file, i) => (
+                          <div key={i} className="truncate flex items-center gap-1" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <FileText className="h-3 w-3 flex-shrink-0" style={{ width: '12px', height: '12px', flexShrink: 0 }} />
+                            <span className="truncate">{file.name} ({(file.size / 1024).toFixed(1)} KB)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <button
-                  type="button"
-                  onClick={handleRequestTestInvite}
-                  disabled={isSendingTestInvite || !testEmail}
-                  className="login-test-invite-btn"
+                  type="submit"
+                  disabled={isLoading || !appEmail || !appPassword || !appConfirmPassword || !appFullName || !appSeriesTitle || appFiles.length === 0}
+                  className="login-submit login-submit--register"
                 >
-                  {isSendingTestInvite ? (
-                    <Loader2 className="login-submit-spinner" />
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="login-submit-spinner" />
+                      <span>Đang nộp đơn ứng tuyển...</span>
+                    </>
                   ) : (
-                    'Gửi mã'
+                    <>
+                      <Upload className="login-submit-icon" />
+                      <span>Nộp đơn ứng tuyển Mangaka</span>
+                    </>
                   )}
                 </button>
-              </div>
-              {testInviteSuccess && (
-                <div className="login-test-invite-success">
-                  <CheckCircle2 className="login-success-icon" style={{ width: '16px', height: '16px' }} />
-                  <span>{testInviteSuccess}</span>
+              </>
+            ) : (
+              <>
+                {/* Assistant Registration Form */}
+                <div className="login-invite-notice">
+                  <KeyRound className="login-invite-notice-icon" />
+                  <p>Bạn cần có <strong>mã mời (Invite Token)</strong> được gửi qua email bởi Mangaka hoặc Admin để đăng ký tài khoản.</p>
                 </div>
-              )}
-              {testInviteError && (
-                <div className="login-test-invite-error">
-                  <AlertCircle className="login-error-icon" style={{ width: '16px', height: '16px' }} />
-                  <span>{testInviteError}</span>
+
+                <div className="login-field">
+                  <label htmlFor="reg-token" className="login-label">
+                    Mã mời (Invite Token)
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="reg-token"
+                      type="text"
+                      value={regToken}
+                      onChange={(e) => setRegToken(e.target.value)}
+                      placeholder="Dán mã mời từ email vào đây..."
+                      required
+                      disabled={isLoading}
+                      className="login-input login-input--token"
+                      autoComplete="off"
+                    />
+                    <div className="login-input-focus" />
+                  </div>
                 </div>
-              )}
-            </div>
 
-            <div className="login-field">
-              <label htmlFor="reg-token" className="login-label">
-                Mã mời (Invite Token)
-              </label>
-              <div className="login-input-wrap">
-                <input
-                  id="reg-token"
-                  type="text"
-                  value={regToken}
-                  onChange={(e) => setRegToken(e.target.value)}
-                  placeholder="Dán mã mời từ email vào đây..."
-                  required
-                  disabled={isLoading}
-                  className="login-input login-input--token"
-                  autoComplete="off"
-                />
-                <div className="login-input-focus" />
-              </div>
-            </div>
+                <div className="login-field">
+                  <label htmlFor="reg-username" className="login-label">
+                    Tên đăng nhập
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="reg-username"
+                      type="text"
+                      value={regUsername}
+                      onChange={(e) => setRegUsername(e.target.value)}
+                      placeholder="Chọn tên đăng nhập"
+                      required
+                      disabled={isLoading}
+                      className="login-input"
+                      autoComplete="username"
+                    />
+                    <div className="login-input-focus" />
+                  </div>
+                </div>
 
-            <div className="login-field">
-              <label htmlFor="reg-username" className="login-label">
-                Tên đăng nhập
-              </label>
-              <div className="login-input-wrap">
-                <input
-                  id="reg-username"
-                  type="text"
-                  value={regUsername}
-                  onChange={(e) => setRegUsername(e.target.value)}
-                  placeholder="Chọn tên đăng nhập"
-                  required
-                  disabled={isLoading}
-                  className="login-input"
-                  autoComplete="username"
-                />
-                <div className="login-input-focus" />
-              </div>
-            </div>
+                <div className="login-field">
+                  <label htmlFor="reg-password" className="login-label">
+                    Mật khẩu
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="reg-password"
+                      type={showRegPassword ? 'text' : 'password'}
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="Ít nhất 8 ký tự, chữ hoa + số + ký tự đặc biệt"
+                      required
+                      disabled={isLoading}
+                      className="login-input login-input--password"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword(!showRegPassword)}
+                      className="login-eye-btn"
+                      tabIndex={-1}
+                    >
+                      {showRegPassword ? <EyeOff className="login-eye-icon" /> : <Eye className="login-eye-icon" />}
+                    </button>
+                    <div className="login-input-focus" />
+                  </div>
+                </div>
 
-            <div className="login-field">
-              <label htmlFor="reg-password" className="login-label">
-                Mật khẩu
-              </label>
-              <div className="login-input-wrap">
-                <input
-                  id="reg-password"
-                  type={showRegPassword ? 'text' : 'password'}
-                  value={regPassword}
-                  onChange={(e) => setRegPassword(e.target.value)}
-                  placeholder="Ít nhất 8 ký tự, chữ hoa + số + ký tự đặc biệt"
-                  required
-                  disabled={isLoading}
-                  className="login-input login-input--password"
-                  autoComplete="new-password"
-                />
+                <div className="login-field">
+                  <label htmlFor="reg-confirm-password" className="login-label">
+                    Xác nhận mật khẩu
+                  </label>
+                  <div className="login-input-wrap">
+                    <input
+                      id="reg-confirm-password"
+                      type={showRegPassword ? 'text' : 'password'}
+                      value={regConfirmPassword}
+                      onChange={(e) => setRegConfirmPassword(e.target.value)}
+                      placeholder="Nhập lại mật khẩu"
+                      required
+                      disabled={isLoading}
+                      className="login-input"
+                      autoComplete="new-password"
+                    />
+                    <div className="login-input-focus" />
+                  </div>
+                </div>
+
                 <button
-                  type="button"
-                  onClick={() => setShowRegPassword(!showRegPassword)}
-                  className="login-eye-btn"
-                  tabIndex={-1}
+                  type="submit"
+                  disabled={isLoading || !regToken || !regUsername || !regPassword || !regConfirmPassword}
+                  className="login-submit login-submit--register"
                 >
-                  {showRegPassword ? <EyeOff className="login-eye-icon" /> : <Eye className="login-eye-icon" />}
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="login-submit-spinner" />
+                      <span>Đang tạo tài khoản...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="login-submit-icon" />
+                      <span>Đăng ký tài khoản Trợ lý</span>
+                    </>
+                  )}
                 </button>
-                <div className="login-input-focus" />
-              </div>
-            </div>
-
-            <div className="login-field">
-              <label htmlFor="reg-confirm-password" className="login-label">
-                Xác nhận mật khẩu
-              </label>
-              <div className="login-input-wrap">
-                <input
-                  id="reg-confirm-password"
-                  type={showRegPassword ? 'text' : 'password'}
-                  value={regConfirmPassword}
-                  onChange={(e) => setRegConfirmPassword(e.target.value)}
-                  placeholder="Nhập lại mật khẩu"
-                  required
-                  disabled={isLoading}
-                  className="login-input"
-                  autoComplete="new-password"
-                />
-                <div className="login-input-focus" />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading || !regToken || !regUsername || !regPassword || !regConfirmPassword}
-              className="login-submit login-submit--register"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="login-submit-spinner" />
-                  <span>Đang tạo tài khoản...</span>
-                </>
-              ) : (
-                <>
-                  <UserPlus className="login-submit-icon" />
-                  <span>Đăng ký tài khoản</span>
-                </>
-              )}
-            </button>
+              </>
+            )}
           </form>
         )}
 

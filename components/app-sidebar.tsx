@@ -60,7 +60,7 @@ const roleNavItems = {
     { href: '/mangaka', label: 'Tổng quan', icon: Home },
     { href: '/mangaka/series', label: 'Series của tôi', icon: BookOpen },
     { href: '/mangaka/chapters', label: 'Quản lý chương', icon: FileEdit },
-    { href: '/mangaka/assistants', label: 'Trợ lý của tôi', icon: Users },
+    { href: '/mangaka/assistants', label: 'Quản lý trợ lý', icon: Users },
     { href: '/mangaka/tasks', label: 'Phân công công việc', icon: ClipboardList },
     { href: '/mangaka/review', label: 'Duyệt công việc', icon: CheckSquare },
     { href: '/mangaka/rankings', label: 'Bảng xếp hạng', icon: TrendingUp },
