@@ -28,6 +28,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { getOptimizedImageUrl } from '@/lib/image-utils'
+import { toast } from 'sonner'
 
 interface TaskDto {
   id: string
@@ -192,12 +193,14 @@ export default function AssistantTasksPage() {
       )
       if (updateRes.errors) throw new Error(updateRes.errors[0].message)
 
+      toast.success('Task result submitted and moved to review.')
       setIsSubmitDialogOpen(false)
       setResultFile(null)
       setResultNote('')
       await fetchTasks()
     } catch (error) {
       console.error('Submit task result failed:', error)
+      toast.error(error instanceof Error ? error.message : 'Unable to submit task result.')
     } finally {
       setIsSubmittingResult(false)
     }
@@ -545,6 +548,10 @@ export default function AssistantTasksPage() {
 
         <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
           <DialogContent className="fixed inset-0 h-screen w-screen max-w-none !rounded-none !border-0 !p-0 !gap-0 !translate-x-0 !translate-y-0">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Task image preview</DialogTitle>
+              <DialogDescription>View the full manga page and assigned region.</DialogDescription>
+            </DialogHeader>
             <div className="relative h-screen w-screen bg-black">
               <DialogClose className="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow hover:bg-background">
                 <span className="text-lg leading-none">×</span>
