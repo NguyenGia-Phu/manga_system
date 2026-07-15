@@ -1067,7 +1067,7 @@ function MangakaTasksContent() {
                 {detailTask.resultFileUrl && (
                   <div className="p-3 bg-emerald-500/5 border border-emerald-500/15 rounded-xl">
                     <p className="text-xs font-bold text-emerald-400 mb-1">File kết quả:</p>
-                    <a href={detailTask.resultFileUrl} target="_blank" rel="noreferrer" className="text-sm text-primary underline">
+                    <a href={detailTask.resultFileUrl} target="_blank" rel="noreferrer" className="block max-w-full break-all text-sm text-primary underline">
                       {detailTask.resultFileUrl}
                     </a>
                   </div>
