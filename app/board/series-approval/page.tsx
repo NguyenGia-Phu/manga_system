@@ -54,6 +54,7 @@ interface EditorUser {
   id: string
   username: string
   email: string
+  isActive: boolean
   roles: string[]
 }
 
@@ -63,6 +64,8 @@ export default function SeriesApprovalPage() {
   const [loading, setLoading] = useState(true)
   const [selectedSeries, setSelectedSeries] = useState<SeriesPending | null>(null)
   const [approvalDialogOpen, setApprovalDialogOpen] = useState(false)
+  const [dialogMode, setDialogMode] = useState<'vote' | 'finalize'>('vote')
+  const [activeBoardMemberCount, setActiveBoardMemberCount] = useState(0)
 
   // Chapters & Pages dialog states
   const [chaptersDialogOpen, setChaptersDialogOpen] = useState(false)
@@ -138,7 +141,22 @@ export default function SeriesApprovalPage() {
       // Fetch Pending Submissions
       const seriesQuery = `
         query GetSubmissionInbox {
-          submissionInbox(filter: FORWARDED_TO_BOARD) {
+          forwarded: submissionInbox(filter: FORWARDED_TO_BOARD) {
+            id
+            seriesId
+            seriesTitle
+            mangakaId
+            mangakaName
+            submittedAt
+            status
+            votes {
+              id
+              boardMemberId
+              boardMemberName
+              voteType
+            }
+          }
+          voting: submissionInbox(filter: IN_BOARD_VOTING) {
             id
             seriesId
             seriesTitle
@@ -155,12 +173,16 @@ export default function SeriesApprovalPage() {
           }
         }
       `
-      const seriesRes = await graphqlRequest<{ submissionInbox: any[] }>(seriesQuery, {}, true)
+      const seriesRes = await graphqlRequest<{ forwarded: any[]; voting: any[] }>(seriesQuery, {}, true)
       if (seriesRes.errors) {
         throw new Error(seriesRes.errors[0].message)
       }
-      
-      const mapped = (seriesRes.data?.submissionInbox || []).map(sub => ({
+
+      const submissions = [
+        ...(seriesRes.data?.forwarded || []),
+        ...(seriesRes.data?.voting || [])
+      ]
+      const mapped = submissions.map(sub => ({
         id: sub.id,
         seriesId: sub.seriesId,
         title: sub.seriesTitle,
@@ -182,6 +204,7 @@ export default function SeriesApprovalPage() {
             id
             username
             email
+            isActive
             roles
           }
         }
@@ -192,8 +215,9 @@ export default function SeriesApprovalPage() {
       }
       
       const allUsers = usersRes.data?.users || []
-      const filteredEditors = allUsers.filter(u => u.roles.includes('Tantou Editor'))
+      const filteredEditors = allUsers.filter(u => u.isActive && u.roles.includes('Tantou Editor'))
       setEditors(filteredEditors)
+      setActiveBoardMemberCount(allUsers.filter(u => u.isActive && u.roles.includes('Editorial Board')).length)
 
     } catch (err: any) {
       console.error(err)
@@ -222,25 +246,71 @@ export default function SeriesApprovalPage() {
     return series.votes.some(v => v.boardMemberId === currentUser.id)
   }
 
-  // 2. Open Approval Dialog
-  const handleOpenApprove = (series: SeriesPending) => {
+  const requiredVotes = Math.floor(activeBoardMemberCount / 2) + 1
+
+  const getVoteCount = (series: SeriesPending, voteType: 'APPROVE' | 'REJECT') =>
+    (series.votes || []).filter(v => v.voteType.toUpperCase() === voteType).length
+
+  const getMajorityDecision = (series: SeriesPending): 'APPROVE' | 'REJECT' | null => {
+    if (getVoteCount(series, 'APPROVE') >= requiredVotes) return 'APPROVE'
+    if (getVoteCount(series, 'REJECT') >= requiredVotes) return 'REJECT'
+    return null
+  }
+
+  // 2. Open voting/finalization dialog
+  const handleOpenVote = (series: SeriesPending) => {
     setSelectedSeries(series)
+    setDialogMode('vote')
     setSelectedEditorId('')
     setVoteDecision('APPROVE')
     setComment('')
     setApprovalDialogOpen(true)
   }
 
-  // 3. Handle Submit Approval
+  const handleOpenFinalize = (series: SeriesPending, decision: 'APPROVE' | 'REJECT') => {
+    setSelectedSeries(series)
+    setDialogMode('finalize')
+    setSelectedEditorId('')
+    setVoteDecision(decision)
+    setComment('')
+    setApprovalDialogOpen(true)
+  }
+
+  // 3. Record a vote or finalize after a majority has been reached
   const handleSubmitApproval = async () => {
     if (!selectedSeries) return
-    if (voteDecision === 'APPROVE' && !selectedEditorId) {
+    if (dialogMode === 'finalize' && voteDecision === 'APPROVE' && !selectedEditorId) {
       toast.warning('Vui lòng chọn Tantou Editor phụ trách.')
       return
     }
 
     setSubmitting(true)
     try {
+      if (dialogMode === 'vote') {
+        const mutation = `
+          mutation VoteSubmission($submissionId: UUID!, $approve: Boolean!, $note: String!) {
+            voteSubmission(submissionId: $submissionId, approve: $approve, note: $note) {
+              id
+              status
+            }
+          }
+        `
+        const res = await graphqlRequest<any>(mutation, {
+          submissionId: selectedSeries.id,
+          approve: voteDecision === 'APPROVE',
+          note: comment || ''
+        }, true)
+
+        if (res.errors) throw new Error(res.errors[0].message)
+        if (!res.data?.voteSubmission) throw new Error('Không thể ghi nhận phiếu bầu.')
+
+        toast.success('Đã ghi nhận phiếu bầu. Quyết định chỉ được chốt khi đủ đa số.')
+        setApprovalDialogOpen(false)
+        setSelectedSeries(null)
+        await fetchData()
+        return
+      }
+
       const mutation = `
         mutation FinalizeBoardDecision($submissionId: UUID!, $decision: WorkflowStatus!, $comment: String!, $assignTantouId: UUID) {
           finalizeBoardDecision(submissionId: $submissionId, decision: $decision, comment: $comment, assignTantouId: $assignTantouId) {
@@ -264,7 +334,7 @@ export default function SeriesApprovalPage() {
 
       const result = res.data?.finalizeBoardDecision
       if (result) {
-        toast.success('Xét duyệt tác phẩm thành công.')
+        toast.success(voteDecision === 'APPROVE' ? 'Tác phẩm đã được xuất bản.' : 'Tác phẩm đã bị từ chối.')
         setApprovalDialogOpen(false)
         setSelectedSeries(null)
         // Refresh list
@@ -275,7 +345,7 @@ export default function SeriesApprovalPage() {
 
     } catch (err: any) {
       console.error(err)
-      toast.error('Lỗi xét duyệt: ' + err.message)
+      toast.error(`${dialogMode === 'vote' ? 'Lỗi bỏ phiếu' : 'Lỗi chốt quyết định'}: ${err.message}`)
     } finally {
       setSubmitting(false)
     }
@@ -379,26 +449,26 @@ export default function SeriesApprovalPage() {
                   </div>
 
                   {/* Vote Count Summary */}
-                  {series.votes && series.votes.length > 0 && (
-                    <div className="space-y-1.5 pt-2 border-t border-dashed border-border/80">
-                      <p className="text-[11px] font-semibold text-muted-foreground">Phiếu bầu hiện tại:</p>
+                  <div className="space-y-1.5 pt-2 border-t border-dashed border-border/80">
+                      <p className="text-[11px] font-semibold text-muted-foreground">
+                        Phiếu hiện tại: {getVoteCount(series, 'APPROVE')} duyệt / {getVoteCount(series, 'REJECT')} từ chối · cần {requiredVotes}/{activeBoardMemberCount} phiếu
+                      </p>
                       <div className="flex gap-1.5 flex-wrap">
                         {series.votes.map((v, idx) => (
                           <Badge 
                             key={idx} 
                             variant="secondary" 
                             className={`text-[10px] py-0 px-1.5 font-normal rounded-full ${
-                              v.voteType === 'Approve' ? 'bg-green-500/10 text-green-600 border-green-500/15' : 
-                              v.voteType === 'Reject' ? 'bg-red-500/10 text-red-600 border-red-500/15' : 
+                              v.voteType.toUpperCase() === 'APPROVE' ? 'bg-green-500/10 text-green-600 border-green-500/15' :
+                              v.voteType.toUpperCase() === 'REJECT' ? 'bg-red-500/10 text-red-600 border-red-500/15' :
                               'bg-muted text-muted-foreground'
                             }`}
                           >
-                            {v.boardMemberName}: {v.voteType === 'Approve' ? 'Đồng ý' : 'Từ chối'}
+                            {v.boardMemberName}: {v.voteType.toUpperCase() === 'APPROVE' ? 'Đồng ý' : 'Từ chối'}
                           </Badge>
                         ))}
                       </div>
                     </div>
-                  )}
                 </CardContent>
 
                 <CardFooter className="p-4 bg-secondary/10 border-t border-border/40 gap-2 flex-none flex-col sm:flex-row">
@@ -415,7 +485,19 @@ export default function SeriesApprovalPage() {
                     Xem bản thảo
                   </Button>
 
-                  {hasUserVoted(series) ? (
+                  {getMajorityDecision(series) ? (
+                    <Button
+                      className={`w-full sm:flex-1 rounded-xl font-semibold shadow-sm gap-2 text-xs ${
+                        getMajorityDecision(series) === 'APPROVE'
+                          ? 'bg-green-600 hover:bg-green-600/90 text-white'
+                          : 'bg-red-600 hover:bg-red-600/90 text-white'
+                      }`}
+                      onClick={() => handleOpenFinalize(series, getMajorityDecision(series)!)}
+                    >
+                      <FileCheck className="h-4 w-4" />
+                      {getMajorityDecision(series) === 'APPROVE' ? 'Chốt duyệt & xuất bản' : 'Chốt từ chối'}
+                    </Button>
+                  ) : hasUserVoted(series) ? (
                     <Button 
                       className="w-full sm:flex-1 rounded-xl bg-muted text-muted-foreground font-semibold cursor-not-allowed gap-2 text-xs"
                       disabled
@@ -426,10 +508,10 @@ export default function SeriesApprovalPage() {
                   ) : (
                     <Button 
                       className="w-full sm:flex-1 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-sm gap-2 text-xs"
-                      onClick={() => handleOpenApprove(series)}
+                      onClick={() => handleOpenVote(series)}
                     >
                       <FileCheck className="h-4 w-4" />
-                      Xét duyệt
+                      Bỏ phiếu
                     </Button>
                   )}
                 </CardFooter>
@@ -444,10 +526,12 @@ export default function SeriesApprovalPage() {
             <DialogHeader className="pb-2 border-b border-border/60">
               <DialogTitle className="text-xl font-bold flex items-center gap-2 text-foreground">
                 <Sparkles className="h-5 w-5 text-primary" />
-                Duyệt Đăng Ký Series Mới
+                {dialogMode === 'vote' ? 'Bỏ Phiếu Series Mới' : 'Chốt Quyết Định Hội Đồng'}
               </DialogTitle>
               <DialogDescription>
-                Phê duyệt tác phẩm đi vào hoạt động và bàn giao cho Biên tập viên phụ trách.
+                {dialogMode === 'vote'
+                  ? `Cần ${requiredVotes}/${activeBoardMemberCount} phiếu cùng chiều để có thể chốt quyết định.`
+                  : 'Đã đạt đa số. Xác nhận quyết định cuối của Hội đồng.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -480,7 +564,7 @@ export default function SeriesApprovalPage() {
                   {/* Select Vote Decision */}
                   <div className="space-y-2">
                     <Label className="text-sm font-semibold text-foreground">
-                      Quyết định của bạn <span className="text-destructive">*</span>
+                      {dialogMode === 'vote' ? 'Phiếu của bạn' : 'Quyết định cuối'} <span className="text-destructive">*</span>
                     </Label>
                     <div className="flex gap-4">
                       <Button
@@ -490,6 +574,7 @@ export default function SeriesApprovalPage() {
                           voteDecision === 'APPROVE' ? 'bg-green-600 hover:bg-green-600/90 text-white' : ''
                         }`}
                         onClick={() => setVoteDecision('APPROVE')}
+                        disabled={dialogMode === 'finalize'}
                       >
                         <Check className="h-4 w-4" />
                         Đồng ý phê duyệt
@@ -501,6 +586,7 @@ export default function SeriesApprovalPage() {
                           voteDecision === 'REJECT' ? 'bg-red-600 hover:bg-red-600/90 text-white' : ''
                         }`}
                         onClick={() => setVoteDecision('REJECT')}
+                        disabled={dialogMode === 'finalize'}
                       >
                         <AlertCircle className="h-4 w-4" />
                         Từ chối đăng ký
@@ -509,7 +595,7 @@ export default function SeriesApprovalPage() {
                   </div>
 
                   {/* Select Tantou Editor (Only show if APPROVE) */}
-                  {voteDecision === 'APPROVE' && (
+                  {dialogMode === 'finalize' && voteDecision === 'APPROVE' && (
                     <div className="space-y-1.5">
                       <Label className="text-sm font-semibold text-foreground flex items-center gap-1">
                         Chỉ định Tantou Editor phụ trách <span className="text-destructive">*</span>
@@ -569,12 +655,12 @@ export default function SeriesApprovalPage() {
                 {submitting ? (
                   <>
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent"></div>
-                    Đang duyệt...
+                    Đang xử lý...
                   </>
                 ) : (
                   <>
                     <Check className="h-4 w-4" />
-                    Xác nhận duyệt
+                    {dialogMode === 'vote' ? 'Gửi phiếu bầu' : 'Chốt quyết định'}
                   </>
                 )}
               </Button>
